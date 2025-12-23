@@ -1,3 +1,0 @@
-/home/kiko/Desktop/Projects/raytracer/build/CMakeFiles/raytracer.dir
-/home/kiko/Desktop/Projects/raytracer/build/CMakeFiles/edit_cache.dir
-/home/kiko/Desktop/Projects/raytracer/build/CMakeFiles/rebuild_cache.dir

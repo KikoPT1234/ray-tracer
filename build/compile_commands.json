@@ -1,8 +1,0 @@
-[
-{
-  "directory": "/home/kiko/Desktop/Projects/raytracer/build",
-  "command": "/usr/bin/c++   -g -o CMakeFiles/raytracer.dir/main.cpp.o -c /home/kiko/Desktop/Projects/raytracer/main.cpp",
-  "file": "/home/kiko/Desktop/Projects/raytracer/main.cpp",
-  "output": "CMakeFiles/raytracer.dir/main.cpp.o"
-}
-]
