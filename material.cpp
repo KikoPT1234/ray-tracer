@@ -9,6 +9,7 @@ struct Material {
     dvec3 color;
     dvec3 emission_color;
     double emission_strength;
+    double smoothness;
 };
 
 #endif

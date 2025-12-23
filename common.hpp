@@ -2,6 +2,7 @@
 #define COMMONS_H
 
 #include <algorithm>
+#include <concepts>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -70,6 +71,14 @@ inline dvec3 arbitrary_perpendicular(const dvec3 &vec) {
         return {-vec.z, 0, vec.x};
     else
         return {-vec.y, vec.x, 0};
+}
+
+inline dvec3 reflect(dvec3 vec, dvec3 normal) {
+    return vec - 2 * dot(vec, normal) * normal;
+}
+
+template <typename T> inline T lerp(T start, T end, double a) {
+    return (1 - a) * start + a * end;
 }
 
 #endif

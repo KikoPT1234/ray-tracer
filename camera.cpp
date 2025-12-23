@@ -139,10 +139,14 @@ class Camera {
                 // return 0.5 * dvec3(N.x + 1, N.y + 1, N.z + 1);
                 // return hit_shape->get_material().color;
                 const Material &m = hit.shape->get_material();
-                dvec3 emittedLight = m.emission_color * m.emission_strength;
-                light += emittedLight * color;
+                dvec3 emmited_light = m.emission_color * m.emission_strength;
+                light += emmited_light * color;
                 color *= m.color;
-                dvec3 direction = hit.normal + random_unit_vector(seed);
+                dvec3 diffuse_direction = hit.normal + random_unit_vector(seed);
+                dvec3 specular_direction =
+                    reflect(ray.get_direction(), hit.normal);
+                dvec3 direction =
+                    lerp(diffuse_direction, specular_direction, m.smoothness);
 
                 ray = {hit.point, direction};
             } else {
