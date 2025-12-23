@@ -1,0 +1,3 @@
+/home/kiko/Desktop/Projects/raytracer/out/build/GCC 15.2.1 x86_64-pc-linux-gnu/CMakeFiles/raytracer.dir
+/home/kiko/Desktop/Projects/raytracer/out/build/GCC 15.2.1 x86_64-pc-linux-gnu/CMakeFiles/edit_cache.dir
+/home/kiko/Desktop/Projects/raytracer/out/build/GCC 15.2.1 x86_64-pc-linux-gnu/CMakeFiles/rebuild_cache.dir

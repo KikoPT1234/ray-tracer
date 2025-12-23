@@ -1,0 +1,7 @@
+{
+    "[cpp]": {
+        "editor.defaultFormatter": "xaver.clang-format",
+        "editor.formatOnSave": true,
+        "editor.indentSize": 4
+    }
+}
