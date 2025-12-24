@@ -153,9 +153,10 @@ class Camera {
                 dvec3 unit_direction = normalize(ray.get_direction());
                 double a = 0.5 * (unit_direction.y + 1.0);
                 dvec3 environment_light = ((1.0 - a) * dvec3(1.0, 1.0, 1.0) +
-                                           a * dvec3(0.5, 0.7, 1.0));
+                                           a * dvec3(0.1, 0.4, 1.0));
+                double sky_intensity = 0.4;
                 // dvec3 environment_light{0, 0, 0};
-                light += color * environment_light;
+                light += color * environment_light * sky_intensity;
                 break;
             }
         }

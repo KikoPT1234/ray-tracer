@@ -20,7 +20,7 @@ int main(int, char **) {
     Sphere sphere2{dvec3{2, 8, -14}, m2, 4};
 
     // Blue
-    Material m3{dvec3{.2, 0.4, 0.7}, dvec3{1, 1, 1}, 0, .9};
+    Material m3{dvec3{.2, 0.4, 0.7}, dvec3{1, 1, 1}, 0, .05};
     Sphere sphere3{dvec3{0, -50, -7}, m3, 46};
 
     // White
@@ -28,7 +28,7 @@ int main(int, char **) {
     Sphere sphere4{dvec3{2, 8, -6}, m4, 4};
 
     // Sun
-    Material m5{dvec3{0, 0, 0}, dvec3{1, 1, 1}, 5, 0};
+    Material m5{dvec3{0, 0, 0}, dvec3{1, 1, 1}, 10, 0};
     Sphere sphere5{dvec3{10, 0, -15}, m5, 4};
 
     world.add(&sphere1);
@@ -37,7 +37,7 @@ int main(int, char **) {
     world.add(&sphere4);
     world.add(&sphere5);
 
-    Camera camera{{-15, 5, -30}, {10, 0, 10}, 70};
+    Camera camera{{-26, 5, -40}, {10, -1, 10}, 30};
 
     camera.render(world, 10, 1000);
 }
