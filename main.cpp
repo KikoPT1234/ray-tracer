@@ -29,24 +29,25 @@ int main(int, char **) {
     // Sphere sphere4{dvec3{2, 8, -6}, m4, 4};
 
     // // Sun
-    // Material m5{dvec3{0, 0, 0}, dvec3{1, 1, 1}, 10, 0};
-    // Sphere sphere5{dvec3{10, 0, -15}, m5, 4};
+    Material m5{dvec3{0, 0, 0}, dvec3{1, 1, 1}, 2, 0};
+    Sphere sphere5{dvec3{0, 0, 0}, m5, 1};
 
     // world.add(&sphere1);
     // world.add(&sphere2);
     // world.add(&sphere3);
     // world.add(&sphere4);
-    // world.add(&sphere5);
+    world.add(&sphere5);
     // world.add(&triangle);
 
     // Monkey
-    Material m_monkey{{0.3, 0.3, 1}, {0, 0, 0}, 0, 0};
+    Material m_monkey{{.2, .4, .7}, {0, 0, 0}, 0, .1};
     Mesh monkey = load_obj_triangles("assets/monkey.obj", m_monkey);
     monkey.set_position({0, 0, -3});
+    // monkey.set_rotation({0, 1, 0}, quarter_pi<double>());
 
     world.add(&monkey);
 
-    Camera camera{{0, 0, 0}, {0, 0, -1}, 90};
+    Camera camera{{-6, 0, 2}, {2, 0, -1}, 30};
 
     camera.render(world, 10, 1000);
 }

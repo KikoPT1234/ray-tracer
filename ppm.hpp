@@ -41,19 +41,21 @@ void write_ppm(const char *filename, int width, int height,
             c.g = aces(c.g);
             c.b = aces(c.b);
 
-            // gamma correction
+            // // gamma correction
             c.r = gamma_correct(c.r);
             c.g = gamma_correct(c.g);
             c.b = gamma_correct(c.b);
 
             // clamp to [0, 1] and convert to [0, 255]
-            int ir = static_cast<int>(255.999f * std::clamp(c.r, 0.0, 1.0));
-            int ig = static_cast<int>(255.999f * std::clamp(c.g, 0.0, 1.0));
-            int ib = static_cast<int>(255.999f * std::clamp(c.b, 0.0, 1.0));
+            int ir = static_cast<int>(255.999 * clamp(c.r, 0.0, 1.0));
+            int ig = static_cast<int>(255.999 * clamp(c.g, 0.0, 1.0));
+            int ib = static_cast<int>(255.999 * clamp(c.b, 0.0, 1.0));
 
             out << ir << " " << ig << " " << ib << "\n";
         }
     }
+
+    std::printf("Written\n");
 }
 
 #endif

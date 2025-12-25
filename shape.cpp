@@ -1,6 +1,8 @@
 #ifndef SHAPE_I
 #define SHAPE_I
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "hit_info.cpp"
 
 #include "common.hpp"
@@ -22,6 +24,7 @@ class HitList : public Hittable {
 
   public:
     void get_intersection(Ray ray, HitInfo &info) const {
+        constexpr double epsilon = std::numeric_limits<double>::epsilon();
         info.t = std::numeric_limits<double>::max();
 
         for (Hittable *hittable : hittables) {
@@ -29,7 +32,7 @@ class HitList : public Hittable {
             hittable->get_intersection(ray, temp);
 
             if (temp.did_hit) {
-                if (temp.t < info.t && temp.t > 0.001) {
+                if (temp.t < info.t && temp.t > epsilon) {
                     info = temp;
                 }
             }
@@ -61,66 +64,89 @@ class Triangle : public Shape {
     dvec3 a;
     dvec3 b;
     dvec3 c;
-    dvec3 normal;
-    double D;
+    dvec3 na;
+    dvec3 nb;
+    dvec3 nc;
+    dvec3 face_normal;
 
   public:
-    Triangle(dvec3 a, dvec3 b, dvec3 c, Material material)
-        : a(a), b(b), c(c), Shape(material) {
-        normal = normalize(cross(b - a, c - a));
-        D = dot(a, normal);
+    Triangle(dvec3 a, dvec3 b, dvec3 c, dvec3 na, dvec3 nb, dvec3 nc,
+             Material material)
+        : a(a), b(b), c(c), na(na), nb(nb), nc(nc), Shape(material) {
+        face_normal = normalize(cross(b - a, c - a));
+        // this->na = na;
+        // this->nb = face_normal;
+        // this->nc = face_normal;
+    }
+
+    void set_normals(dvec3 na, dvec3 nb, dvec3 nc) {
+        this->na = na;
+        this->nb = nb;
+        this->nc = nc;
     }
 
     // https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
     void get_intersection(Ray ray, HitInfo &info) const {
-        constexpr double epsilon = std::numeric_limits<double>::epsilon();
-
-        dvec3 edge1 = b - a;
-        dvec3 edge2 = c - a;
-        dvec3 ray_cross_e2 = cross(ray.get_direction(), edge2);
-        double determinant = dot(edge1, ray_cross_e2);
-
-        if (determinant > -epsilon && determinant < epsilon) {
-            info.did_hit = false;
-            return;
-        }
-
-        double inv_det = 1.0 / determinant;
-        dvec3 s = ray.get_origin() - a;
-        double u = inv_det * dot(s, ray_cross_e2);
-
-        if ((u < 0 && abs(u) > epsilon) || (u > 1 && abs(u - 1) > epsilon)) {
-            info.did_hit = false;
-            return;
-        }
-
-        dvec3 s_cross_e1 = cross(s, edge1);
-        double v = inv_det * dot(ray.get_direction(), s_cross_e1);
-
-        if ((v < 0 && abs(v) > epsilon) ||
-            (u + v > 1 && abs(u + v - 1) > epsilon)) {
-            info.did_hit = false;
-            return;
-        }
-
-        double t = inv_det * dot(edge2, s_cross_e1);
-
-        if (t <= epsilon) {
-            info.did_hit = false;
-            return;
-        }
-
-        info.did_hit = true;
-        info.t = t;
-        info.normal = normal;
-        info.point = ray.offset(t);
         info.shape = this;
+        constexpr double eps = std::numeric_limits<double>::epsilon();
+        dvec3 ab = b - a;
+        dvec3 ac = c - a;
+        dvec3 normal_vector = cross(ab, ac);
+        dvec3 ao = ray.get_origin() - a;
+        dvec3 dao = cross(ao, ray.get_direction());
+
+        double determinant = -dot(ray.get_direction(), normal_vector);
+        if (determinant < eps) {
+            info.did_hit = false;
+            return;
+        }
+        double invDet = 1.0 / determinant;
+
+        // Calculate dst to triangle & barycentric coordinates of intersection
+
+        double u = dot(ac, dao) * invDet;
+        if (u < eps || u - eps > 1.0) {
+            info.did_hit = false;
+            return;
+        }
+
+        double v = -dot(ab, dao) * invDet;
+        if (v < eps || (v + u - eps) > 1.0) {
+            info.did_hit = false;
+            return;
+        }
+
+        double dst = dot(ao, normal_vector) * invDet;
+        if (dst < eps) {
+            info.did_hit = false;
+            return;
+        }
+
+        double w = 1 - u - v;
+
+        // Initialize hit info
+        info.did_hit = true;
+        info.point = ray.offset(dst);
+        info.normal = normalize(na * w + nb * u + nc * v);
+        info.t = dst;
     }
 
     void shift(const dvec3 &offset) {
         a += offset;
         b += offset;
         c += offset;
+    }
+
+    void transform(const dmat4 &matrix) {
+        a = matrix * dvec4(a, 1);
+        b = matrix * dvec4(b, 1);
+        c = matrix * dvec4(c, 1);
+
+        dmat3 no_translation = matrix;
+        dmat3 normal_matrix = transpose(inverse(no_translation));
+        na = normalize(normal_matrix * na);
+        nb = normalize(normal_matrix * nb);
+        nc = normalize(normal_matrix * nc);
     }
 };
 
@@ -137,6 +163,8 @@ class Mesh : public Shape {
     Mesh(Material material) : Shape(material) { position = {0, 0, 0}; }
 
     void get_intersection(Ray ray, HitInfo &info) const {
+        constexpr double epsilon = 1e-6;
+
         info.t = std::numeric_limits<double>::max();
 
         for (Hittable *triangle : triangles) {
@@ -144,7 +172,7 @@ class Mesh : public Shape {
             triangle->get_intersection(ray, temp);
 
             if (temp.did_hit) {
-                if (temp.t < info.t && temp.t > 0.001) {
+                if (temp.t < info.t && temp.t > epsilon) {
                     info = temp;
                 }
             }
@@ -164,8 +192,33 @@ class Mesh : public Shape {
 
     void set_position(const dvec3 &position) {
         this->position = position;
-        for (Triangle *triangle : triangles) {
+        std::printf("%d\n", triangles.size());
+        for (int i = 0; i < triangles.size(); i++) {
+            Triangle *triangle = triangles[i];
+            // std::printf("%d\n", i);
             triangle->shift(position);
+        }
+    }
+
+    void set_rotation(const dvec3 &axis, double angle) {
+        dmat4 transformation = identity<dmat4>();
+        transformation = translate(transformation, position);
+        transformation = rotate(transformation, angle, axis);
+        transformation = translate(transformation, -position);
+
+        for (Triangle *triangle : triangles) {
+            triangle->transform(transformation);
+        }
+    }
+
+    void set_scale(double factor) {
+        dmat4 transformation = identity<dmat4>();
+        transformation = translate(transformation, position);
+        transformation = scale(transformation, {factor, factor, factor});
+        transformation = translate(transformation, -position);
+
+        for (Triangle *triangle : triangles) {
+            triangle->transform(transformation);
         }
     }
 };

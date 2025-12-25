@@ -125,7 +125,8 @@ class Camera {
         return {get_position(), pos - get_position()};
     }
 
-    dvec3 trace_ray(const Hittable &world, Ray ray, int bounces, int seed) {
+    dvec3 trace_ray(const Hittable &world, Ray ray, int bounces,
+                    unsigned int &seed) {
         dvec3 color{1, 1, 1};
         dvec3 light{0, 0, 0};
 
@@ -148,7 +149,10 @@ class Camera {
                 dvec3 direction =
                     lerp(diffuse_direction, specular_direction, m.smoothness);
 
-                ray = {hit.point, direction};
+                // if (dot(direction, hit.Ng) < 0.0)
+                //     direction = -direction;
+
+                ray = Ray(hit.point + hit.normal * 1e-8, direction);
             } else {
                 dvec3 unit_direction = normalize(ray.get_direction());
                 double a = 0.5 * (unit_direction.y + 1.0);
