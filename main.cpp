@@ -8,38 +8,21 @@
 #include "obj.cpp"
 #include "ppm.hpp"
 #include "ray.cpp"
+#include "shader.cpp"
 #include "shape.cpp"
 
 using namespace glm;
 
-std::string load_file(const std::string &path) {
-    std::ifstream file(path);
-    std::stringstream ss;
-    ss << file.rdbuf();
-    return ss.str();
+void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
+    glViewport(0, 0, width, height);
 }
 
-GLuint compile_shader(GLenum type, const std::string &path) {
-    std::string src = load_file(path);
-    const char *csrc = src.c_str();
-
-    GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &csrc, nullptr);
-    glCompileShader(shader);
-
-    int ok;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[1024];
-        glGetShaderInfoLog(shader, 1024, nullptr, log);
-
-        std::cerr << "Shader error:\n" << log << std::endl;
-    }
-
-    return shader;
+void processInput(GLFWwindow *window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
 }
 
-void init() {
+int init() {
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -47,50 +30,95 @@ void init() {
 
     GLFWwindow *window =
         glfwCreateWindow(WIDTH, HEIGHT, "Raytracer", nullptr, nullptr);
+    if (window == nullptr) {
+        std::printf("Failed to create GLFW window\n");
+        glfwTerminate();
+        return -1;
+    }
     glfwMakeContextCurrent(window);
 
-    gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::printf("Failed to initialize GLAD\n");
+        return -1;
+    }
 
-    float verts[] = {-1.f, -1.f, 3.f, -1.f, -1.f, 3.f};
+    glViewport(0, 0, WIDTH, HEIGHT);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    GLuint vao, vbo;
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
+    float vertices[] = {
+        // positions        // colors
+        0.5f,  -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, // bottom right
+        -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f, // bottom left
+        0.0f,  0.5f,  0.0f, 0.0f, 0.0f, 1.0f  // top
+    };
+    unsigned int indices[] = {
+        // note that we start from 0!
+        0,
+        1,
+        2, // first triangle
+    };
 
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+    float texCoords[] = {
+        0.0f, 0.0f, // lower-left corner
+        1.0f, 0.0f, // lower-right corner
+        0.5f, 1.0f  // top-center corner
+    };
 
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), nullptr);
+    unsigned int VAO;
+    glGenVertexArrays(1, &VAO);
+    glBindVertexArray(VAO);
+
+    unsigned int VBO;
+    glGenBuffers(1, &VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    unsigned int EBO;
+    glGenBuffers(1, &EBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices,
+                 GL_STATIC_DRAW);
+
+    // position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                          (void *)0);
     glEnableVertexAttribArray(0);
 
-    GLuint vs = compile_shader(GL_VERTEX_SHADER, "shaders/fullscreen.vert");
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, "shaders/raytrace.frag");
+    // color attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                          (void *)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 
-    GLuint program = glCreateProgram();
-    glAttachShader(program, vs);
-    glAttachShader(program, fs);
-    glLinkProgram(program);
-
-    glDeleteShader(vs);
-    glDeleteShader(fs);
+    Shader shader("shaders/shader.vert", "shaders/shader.frag");
 
     while (!glfwWindowShouldClose(window)) {
-        int w, h;
-        glfwGetFramebufferSize(window, &w, &h);
-        glViewport(0, 0, w, h);
+        processInput(window);
 
-        glUseProgram(program);
-        glUniform2f(glGetUniformLocation(program, "resolution"), w, h);
+        glClearColor(.2f, .3f, .3f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
 
-        glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        // float timeValue = glfwGetTime();
+        // float greenValue = (sin(timeValue) / 2.0f) + 0.5f;
+        // int vertexColorLocation =
+        //     glGetUniformLocation(shader_program, "ourColor");
+
+        shader.use();
+        // glUniform4f(vertexColorLocation, 0.05f, greenValue, 0.0f, 1.0f);
+        glBindVertexArray(VAO);
+        // glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+
     glfwTerminate();
+
+    return 0;
 }
 
 int main() { init(); }
