@@ -10,6 +10,7 @@ find_package(glm CONFIG REQUIRED)
 
 add_subdirectory(external/glad)
 add_executable(raytracer main.cpp)
+target_include_directories(raytracer PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(raytracer
     glm::glm
     OpenGL::GL
