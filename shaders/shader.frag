@@ -10,8 +10,14 @@ struct Ray {
     vec3 direction;
 };
 
+struct Material {
+    vec4 color_smoothness;
+    vec4 emission_color_strength;
+};
+
 struct Sphere {
     vec4 position_radius;
+    Material material;
 };
 
 struct HitInfo {
@@ -33,6 +39,35 @@ uniform vec2 resolution;
 uniform float viewport_height;
 
 out vec4 FragColor;
+
+float random(inout uint seed) {
+    seed = seed * 747796405 + 2891336453;
+    uint result = ((seed >> ((seed >> 28) + 4)) ^ seed) + 277803737;
+    result = (result >> 22) ^ result;
+    return result / 4294967295.0;
+}
+
+float random_between(float start, float end, inout uint seed) {
+    return (end - start) * random(seed) + start;
+}
+
+vec3 random_unit_vector(inout uint seed) {
+    vec3 candidate;
+    while (true) {
+        candidate = vec3(random_between(-1, 1, seed), random_between(-1, 1, seed),
+                     random_between(-1, 1, seed));
+
+        // std::printf("(%f %f %f)\n", candidate.x, candidate.y, candidate.z);
+        double len_sq = dot(candidate, candidate);
+
+        if (len_sq < 1e-160 || len_sq > 1.0)
+            continue;
+
+        candidate = normalize(candidate);
+        break;
+    }
+    return candidate;
+}
 
 mat4 get_cam_matrix() {
     vec3 world_up = vec3(0.0, 1.0, 0.0);
@@ -95,6 +130,78 @@ void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
     }
 }
 
+HitInfo intersect_ray(Ray ray) {
+    HitInfo info;
+    info.did_hit = false;
+    info.t = 1.0 / 0.0;
+
+    float epsilon = 1e-8;
+
+    for (int i = 0; i < sphereCount; i++) {
+        Sphere sphere = spheres[i];
+
+        HitInfo temp;
+        temp.did_hit = false;
+        sphere_intersection(sphere, ray, temp);
+
+        if (temp.did_hit) {
+            if (temp.t < info.t && temp.t > epsilon) {
+                info = temp;
+            }
+        }        
+    }
+
+    return info;
+}
+
+vec3 lerp(vec3 a, vec3 b, float h) {
+    return a * (1-h) + b * h;
+}
+
+vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
+    vec3 color = vec3(1, 1, 1);
+    vec3 light = vec3(0, 0, 0);
+
+    for (int i = 0; i <= bounces; i++) {
+        HitInfo hit = intersect_ray(ray);
+        if (hit.did_hit) {
+            Material material = hit.sphere.material;
+            vec3 emission_color = material.emission_color_strength.xyz;
+            float emission_strength = material.emission_color_strength.w;
+            vec3 emitted_light = emission_color * emission_strength;
+            light += emitted_light * color;
+            vec3 material_color = material.color_smoothness.xyz;
+            float smoothness = material.color_smoothness.w;
+            color *= material_color;
+            vec3 diffuse_direction = hit.normal + random_unit_vector(seed);
+            vec3 specular_direction =
+                reflect(ray.direction, hit.normal);
+            vec3 direction =
+                lerp(diffuse_direction, specular_direction, smoothness);
+
+            ray = Ray(hit.point + hit.normal * 1e-8, direction);
+        } else {
+            vec3 unit_direction = normalize(ray.direction);
+            float a = 0.5 * (unit_direction.y + 1.0);
+            vec3 environment_light = ((1.0 - a) * vec3(1.0, 1.0, 1.0) +
+                                        a * vec3(0.1, 0.4, 1.0));
+            float sky_intensity = 1;
+            // dvec3 environment_light{0, 0, 0};
+            light += color * environment_light * sky_intensity;
+            break;
+        }
+    }
+
+    return light;
+}
+
+uint hash(uvec2 p) {
+    p = 1664525u * (p ^ (p >> 15u));
+    p += 1013904223u;
+    p ^= (p >> 16u);
+    return p.x ^ p.y;
+}
+
 void main()
 {
     vec2 viewport = vec2( (resolution.x / resolution.y) * viewport_height, viewport_height );
@@ -119,26 +226,13 @@ void main()
         pos - camera.position.xyz
     );
 
-    HitInfo info;
-    info.t = 1.0 / 0.0;
+    uint seed = hash(uvec2(gl_FragCoord.xy));
 
-    float epsilon = 1e-8;
+    vec3 sum = vec3(0, 0, 0);
 
-    for (int i = 0; i < sphereCount; i++) {
-        Sphere sphere = spheres[i];
-
-        HitInfo temp;
-        sphere_intersection(sphere, ray, temp);
-
-        if (temp.did_hit) {
-            if (temp.t < info.t && temp.t > epsilon) {
-                info = temp;
-            }
-        }        
+    for (int i = 0; i < 150; i++) {
+        sum += trace_ray(ray, 2, seed);
     }
 
-    if (info.did_hit)
-        FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-    else
-        FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    FragColor = vec4(sum / 150.0, 1);
 }

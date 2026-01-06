@@ -205,8 +205,14 @@ void load_buffers(GLuint *VAO, GLuint *VBO) {
     glEnableVertexAttribArray(0);
 }
 
+struct GPUMaterial {
+    vec4 color_smoothness;
+    vec4 emission_color_strength;
+};
+
 struct GPUSphere {
     vec4 position_radius;
+    GPUMaterial material;
 };
 
 struct GPUCamera {
@@ -266,7 +272,34 @@ int main() {
     shader.use();
     shader_id = shader.ID;
 
-    std::vector<GPUSphere> spheres = {{{0, 0, -6, 3}}};
+    GPUMaterial m1 {
+        vec4(.1f, .2f, .8f, .1f),
+        vec4(1.f, 1.f, 1.f, 0.f)
+    };
+    GPUSphere sphere1 {
+        vec4(0, 0, -10, 3),
+        m1
+    };
+
+    GPUMaterial m2 {
+        vec4(.1f, .9f, .3f, .1f),
+        vec4(1.f, 1.f, 1.f, 0.f)
+    };
+    GPUSphere sphere2 {
+        vec4(0, -100, -10, 97),
+        m2
+    };
+
+    GPUMaterial m3 {
+        vec4(0, 0, 0, .1f),
+        vec4(1.f, 1.f, 1.f, 50.f)
+    };
+    GPUSphere sphere3 {
+        vec4(100, 100, -100, 30),
+        m3
+    };
+
+    std::vector<GPUSphere> spheres = {sphere1, sphere2, sphere3};
 
     shader.setInt("sphereCount", spheres.size());
 

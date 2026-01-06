@@ -6,8 +6,6 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(OpenGL REQUIRED)
 find_package(glm CONFIG REQUIRED)
 
-# add_subdirectory(external/glad)
-
 add_subdirectory(external/glad)
 add_executable(raytracer main.cpp)
 target_include_directories(raytracer PUBLIC ${CMAKE_SOURCE_DIR}/include)
