@@ -38,6 +38,9 @@ uniform int sphereCount;
 uniform vec2 resolution;
 uniform float viewport_height;
 
+uniform sampler2D prevFrame;   // texture from last frame
+uniform int frameCount;
+
 out vec4 FragColor;
 
 float random(inout uint seed) {
@@ -52,21 +55,15 @@ float random_between(float start, float end, inout uint seed) {
 }
 
 vec3 random_unit_vector(inout uint seed) {
-    vec3 candidate;
-    while (true) {
-        candidate = vec3(random_between(-1, 1, seed), random_between(-1, 1, seed),
-                     random_between(-1, 1, seed));
+    float z = random_between(-1, 1, seed);
+    float r = sqrt(max(0.0, 1.0 - z*z));
+    float phi = random_between(1e-8, 3.1415926535 * 2.0f, seed);
 
-        // std::printf("(%f %f %f)\n", candidate.x, candidate.y, candidate.z);
-        double len_sq = dot(candidate, candidate);
-
-        if (len_sq < 1e-160 || len_sq > 1.0)
-            continue;
-
-        candidate = normalize(candidate);
-        break;
-    }
-    return candidate;
+    return vec3(
+        r * cos(phi),
+        r * sin(phi),
+        z
+    );
 }
 
 mat4 get_cam_matrix() {
@@ -155,7 +152,7 @@ HitInfo intersect_ray(Ray ray) {
 }
 
 vec3 lerp(vec3 a, vec3 b, float h) {
-    return a * (1-h) + b * h;
+    return a * (1.0f-h) + b * h;
 }
 
 vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
@@ -166,6 +163,7 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
         HitInfo hit = intersect_ray(ray);
         if (hit.did_hit) {
             Material material = hit.sphere.material;
+
             vec3 emission_color = material.emission_color_strength.xyz;
             float emission_strength = material.emission_color_strength.w;
             vec3 emitted_light = emission_color * emission_strength;
@@ -173,11 +171,19 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
             vec3 material_color = material.color_smoothness.xyz;
             float smoothness = material.color_smoothness.w;
             color *= material_color;
-            vec3 diffuse_direction = hit.normal + random_unit_vector(seed);
+            vec3 diffuse_direction = normalize(hit.normal + random_unit_vector(seed));
             vec3 specular_direction =
                 reflect(ray.direction, hit.normal);
             vec3 direction =
-                lerp(diffuse_direction, specular_direction, smoothness);
+                normalize(lerp(diffuse_direction, specular_direction, smoothness));
+
+            // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
+            float p = max(color.r, max(color.g, color.b));
+            if (random(seed) >= p) {
+                break;
+            }
+
+            color *= 1.0 / p;
 
             ray = Ray(hit.point + hit.normal * 1e-8, direction);
         } else {
@@ -195,11 +201,14 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
     return light;
 }
 
-uint hash(uvec2 p) {
-    p = 1664525u * (p ^ (p >> 15u));
-    p += 1013904223u;
-    p ^= (p >> 16u);
-    return p.x ^ p.y;
+uint pcg_hash(uint v) {
+    v = v * 747796405u + 2891336453u;
+    v = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
+    return (v >> 22u) ^ v;
+}
+
+uint hash2(uvec2 v) {
+    return pcg_hash(v.x + pcg_hash(v.y));
 }
 
 void main()
@@ -219,20 +228,25 @@ void main()
 
     vec3 lt = get_left_top(viewport);
 
-    vec3 pos = lt + (gl_FragCoord.x) * (dx) + (gl_FragCoord.y) * dy;
+    uint seed = hash2(uvec2(gl_FragCoord.xy));
+    seed = pcg_hash(seed ^ pcg_hash(frameCount));
+
+    float offset_x = random_between(-.5f, .5f, seed);
+    float offset_y = random_between(-.5f, .5f, seed);
+
+    vec3 pos = lt + (gl_FragCoord.x + offset_x) * (dx) + (gl_FragCoord.y + offset_y) * dy;
     
     Ray ray = Ray(
         camera.position.xyz,
-        pos - camera.position.xyz
+        normalize(pos - camera.position.xyz)
     );
 
-    uint seed = hash(uvec2(gl_FragCoord.xy));
+    vec2 uv = gl_FragCoord.xy / resolution;
 
-    vec3 sum = vec3(0, 0, 0);
+    vec4 prev = texture(prevFrame, uv);
+    vec4 current = vec4(trace_ray(ray, 5, seed), 1);
 
-    for (int i = 0; i < 150; i++) {
-        sum += trace_ray(ray, 2, seed);
-    }
+    float w = 1.0 / float(frameCount + 1);
 
-    FragColor = vec4(sum / 150.0, 1);
+    FragColor = prev * (1.0 - w) + current * w;
 }
