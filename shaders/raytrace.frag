@@ -2,7 +2,7 @@
 
 struct Camera {
     vec4 position;
-    vec4 direction;
+    vec4 direction_fov;
 };
 
 struct Ray {
@@ -20,12 +20,25 @@ struct Sphere {
     Material material;
 };
 
+struct Triangle {
+    vec4 v1;
+    vec4 v2;
+    vec4 v3;
+
+    vec4 n1;
+    vec4 n2;
+    vec4 n3;
+    Material material;
+};
+
 struct HitInfo {
     bool did_hit;
     Sphere sphere;
+    Triangle triangle;
     vec3 point;
     vec3 normal;
-    double t;
+    float t;
+    bool isTriangle;
 };
 
 uniform Camera camera;
@@ -34,7 +47,13 @@ layout (std430, binding = 0) buffer Spheres {
     Sphere spheres[];
 };
 
+layout (std430, binding = 1) buffer Triangles {
+    Triangle triangles[];
+};
+
 uniform int sphereCount;
+uniform int triangleCount;
+
 uniform vec2 resolution;
 uniform float viewport_height;
 
@@ -68,7 +87,7 @@ vec3 random_unit_vector(inout uint seed) {
 
 mat4 get_cam_matrix() {
     vec3 world_up = vec3(0.0, 1.0, 0.0);
-    vec3 forward = -camera.direction.xyz;
+    vec3 forward = -camera.direction_fov.xyz;
     vec3 right = normalize(cross(world_up, forward));
     vec3 up = cross(forward, right);
 
@@ -83,7 +102,7 @@ mat4 get_cam_matrix() {
 }
 
 float get_focal_length() {
-    float FOV = 90.0;
+    float FOV = camera.direction_fov.w;
     return (viewport_height / 2.0) / tan(radians(FOV / 2.0));
 }
 
@@ -95,6 +114,51 @@ vec3 get_left_top(vec2 viewport) {
     return outv;
 }
 
+void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
+    const float eps = 1e-10;
+    vec3 ab = (triangle.v2 - triangle.v1).xyz;
+    vec3 ac = (triangle.v3 - triangle.v1).xyz;
+    vec3 normal_vector = cross(ab, ac);
+    vec3 ao = ray.origin - triangle.v1.xyz;
+    vec3 dao = cross(ao, ray.direction);
+
+    float determinant = -dot(ray.direction, normal_vector);
+    if (determinant < eps) {
+        info.did_hit = false;
+        return;
+    }
+    float invDet = 1.0 / determinant;
+
+    // Calculate dst to triangle & barycentric coordinates of intersection
+
+    float u = dot(ac, dao) * invDet;
+    if (u < eps || u - eps > 1.0) {
+        info.did_hit = false;
+        return;
+    }
+
+    float v = -dot(ab, dao) * invDet;
+    if (v < eps || (v + u - eps) > 1.0) {
+        info.did_hit = false;
+        return;
+    }
+
+    float dst = dot(ao, normal_vector) * invDet;
+    if (dst < eps) {
+        info.did_hit = false;
+        return;
+    }
+
+    float w = 1 - u - v;
+
+    // Initialize hit info
+    info.did_hit = true;
+    info.isTriangle = true;
+    info.triangle = triangle;
+    info.point = ray.origin + ray.direction * dst;
+    info.normal = normalize(triangle.n1.xyz * w + triangle.n2.xyz * u + triangle.n3.xyz * v);
+    info.t = dst;
+}
 
 void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
     vec3 op = sphere.position_radius.xyz - ray.origin.xyz;
@@ -124,6 +188,7 @@ void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
         info.t = x;
         info.point = ray.origin + ray.direction * x;
         info.normal = (info.point - sphere.position_radius.xyz) / radius;
+        info.isTriangle = false;
     }
 }
 
@@ -148,6 +213,20 @@ HitInfo intersect_ray(Ray ray) {
         }        
     }
 
+    for (int i = 0; i < triangleCount; i++) {
+        Triangle triangle = triangles[i];
+
+        HitInfo temp;
+        temp.did_hit = false;
+        triangle_intersection(triangle, ray, temp);
+
+        if (temp.did_hit) {
+            if (temp.t < info.t && temp.t > epsilon) {
+                info = temp;
+            }
+        }  
+    }
+
     return info;
 }
 
@@ -162,7 +241,9 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
     for (int i = 0; i <= bounces; i++) {
         HitInfo hit = intersect_ray(ray);
         if (hit.did_hit) {
-            Material material = hit.sphere.material;
+            Material material;
+            if (hit.isTriangle) material = hit.triangle.material;
+            else material = hit.sphere.material;
 
             vec3 emission_color = material.emission_color_strength.xyz;
             float emission_strength = material.emission_color_strength.w;
@@ -192,7 +273,7 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
             vec3 environment_light = ((1.0 - a) * vec3(1.0, 1.0, 1.0) +
                                         a * vec3(0.1, 0.4, 1.0));
             float sky_intensity = 1;
-            // dvec3 environment_light{0, 0, 0};
+            // vec3 environment_light{0, 0, 0};
             light += color * environment_light * sky_intensity;
             break;
         }
