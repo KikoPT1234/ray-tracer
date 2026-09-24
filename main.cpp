@@ -29,6 +29,7 @@ int new_width, new_height;
 struct GPUMaterial {
     vec4 color_smoothness;
     vec4 emission_color_strength;
+    vec4 opacity;
 };
 
 struct GPUSphere {
@@ -361,16 +362,20 @@ int main() {
     shader.use();
     raytrace_shader_id = shader.ID;
 
-    GPUMaterial m1{vec4(.8f, .1f, .1f, .4f), vec4(1.f, 1.f, 1.f, 0.f)};
+    GPUMaterial m1{vec4(.8f, .1f, .1f, .2f), vec4(1.f, 1.f, 1.f, 0.f),
+                   vec4(.2f, .2f, .2f, 1.2f)};
     GPUSphere sphere1{vec4(0, 0, -10, 3), m1};
 
-    GPUMaterial m1_2{vec4(.8f, .1f, .8f, .4f), vec4(1.f, 1.f, 1.f, 0.f)};
+    GPUMaterial m1_2{vec4(.8f, .1f, .8f, .2f), vec4(.8f, .1f, .8f, 0.f),
+                     vec4(1.f, 1.f, 1.f, 1.f)};
     GPUSphere sphere1_2{vec4(8, 0, -10, 3), m1_2};
 
-    GPUMaterial m2{vec4(.9f, .9f, .9f, .2f), vec4(1.f, 1.f, 1.f, 0.f)};
+    GPUMaterial m2{vec4(.9f, .9f, .9f, .2f), vec4(1.f, 1.f, 1.f, 0.f),
+                   vec4(1.f, 1.f, 1.f, 1.f)};
     GPUSphere sphere2{vec4(0, -60, -10, 58), m2};
 
-    GPUMaterial m3{vec4(0, 0, 0, .0f), vec4(1.f, 1.f, 1.f, 6.f)};
+    GPUMaterial m3{vec4(1, 1, 1, .0f), vec4(1.f, 1.f, 1.f, 5.f),
+                   vec4(1.f, 1.f, 1.f, 1.f)};
     GPUSphere sphere3{vec4(100, 100, -100, 70), m3};
 
     GPUTriangle triangle{vec4(0, 0, 0, 1),
@@ -382,7 +387,7 @@ int main() {
                          m1};
 
     std::vector<GPUSphere> spheres = {sphere1, sphere1_2, sphere2, sphere3};
-    std::vector<GPUTriangle> triangles = {triangle};
+    std::vector<GPUTriangle> triangles = {};
 
     shader.setInt("sphereCount", spheres.size());
     shader.setInt("triangleCount", triangles.size());

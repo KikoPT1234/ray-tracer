@@ -13,6 +13,7 @@ struct Ray {
 struct Material {
     vec4 color_smoothness;
     vec4 emission_color_strength;
+    vec4 opacity;
 };
 
 struct Sphere {
@@ -180,6 +181,9 @@ void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
     else
         x = (h - sqrt(discriminant)) / a;
 
+    if (x < 0)
+        x = (h + sqrt(discriminant)) / a;
+
     if (x <= 1e-10)
         info.did_hit = false;
     else {
@@ -251,22 +255,71 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
             light += emitted_light * color;
             vec3 material_color = material.color_smoothness.xyz;
             float smoothness = material.color_smoothness.w;
-            color *= material_color;
             vec3 diffuse_direction = normalize(hit.normal + random_unit_vector(seed));
             vec3 specular_direction =
                 reflect(ray.direction, hit.normal);
-            vec3 direction =
+
+            vec3 opacity = material.opacity.xyz;
+
+            vec3 refract_direction;
+
+            float R = 1;
+
+            if (opacity != vec3(1.0f, 1.0f, 1.0f)) {
+                float hit_cos = -dot(ray.direction, hit.normal);
+                float hit_sine2 = 1 - hit_cos * hit_cos;
+                float refractive_index = material.opacity.w;
+                float n1;
+                float n2;
+
+                if (hit_cos >= 0) {
+                    n1 = 1;
+                    n2 = refractive_index;
+                } else {
+                    n1 = refractive_index;
+                    n2 = 1;
+                    hit.normal = -hit.normal;
+                    hit_cos = -hit_cos;
+                }
+
+                float n = n1 / n2;
+
+                float sine2_outgoing = hit_sine2 * n * n;
+
+                float cos_outgoing = sqrt(1 - sine2_outgoing);
+
+                refract_direction = normalize(n * ray.direction + (n * hit_cos - cos_outgoing) * hit.normal);
+
+                float schlick_cos = n1 <= n2 ? hit_cos : cos_outgoing;
+            
+                float R0 = pow(((n1 - n2) / (n1 + n2)), 2);
+                R = R0 + (1 - R0) * pow((1 - schlick_cos), 5);
+            }
+            
+            
+            vec3 reflect_direction =
                 normalize(lerp(diffuse_direction, specular_direction, smoothness));
 
-            // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
-            float p = max(color.r, max(color.g, color.b));
-            if (random(seed) >= p) {
-                break;
+            vec3 direction;
+            bool refracted = random(seed) >= R;
+
+            if (!refracted) {            
+                color *= material_color;
+                direction = reflect_direction;
+            } else {
+                direction = refract_direction;
+                color *= material_color;
             }
 
-            color *= 1.0 / p;
+            // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
+            // float p = max(color.r, max(color.g, color.b));
+            // if (random(seed) >= p) {
+            //     break;
+            // }
 
-            ray = Ray(hit.point + hit.normal * 1e-8, direction);
+            // color *= 1.0 / p;
+
+            ray = Ray(hit.point + (refracted ? -hit.normal * 1e-8 : hit.normal * 1e-8), direction);
         } else {
             vec3 unit_direction = normalize(ray.direction);
             float a = 0.5 * (unit_direction.y + 1.0);
