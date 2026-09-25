@@ -29,7 +29,8 @@ int new_width, new_height;
 struct GPUMaterial {
     vec4 color_smoothness;
     vec4 emission_color_strength;
-    vec4 opacity;
+    vec4 glass_absorption_ior;
+    vec4 type;
 };
 
 struct GPUSphere {
@@ -362,32 +363,58 @@ int main() {
     shader.use();
     raytrace_shader_id = shader.ID;
 
-    GPUMaterial m1{vec4(.8f, .1f, .1f, .2f), vec4(1.f, 1.f, 1.f, 0.f),
-                   vec4(.2f, .2f, .2f, 1.2f)};
+    GPUMaterial m1{vec4(1.f, 1.f, 1.f, .95f), vec4(1.f, 1.f, 1.f, 0.f),
+                   vec4(0.f, 0.f, 0.f, 1.5f), vec4(1, 0, 0, 0)};
     GPUSphere sphere1{vec4(0, 0, -10, 3), m1};
 
     GPUMaterial m1_2{vec4(.8f, .1f, .8f, .2f), vec4(.8f, .1f, .8f, 0.f),
-                     vec4(1.f, 1.f, 1.f, 1.f)};
+                     vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
     GPUSphere sphere1_2{vec4(8, 0, -10, 3), m1_2};
 
     GPUMaterial m2{vec4(.9f, .9f, .9f, .2f), vec4(1.f, 1.f, 1.f, 0.f),
-                   vec4(1.f, 1.f, 1.f, 1.f)};
+                   vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
     GPUSphere sphere2{vec4(0, -60, -10, 58), m2};
 
     GPUMaterial m3{vec4(1, 1, 1, .0f), vec4(1.f, 1.f, 1.f, 5.f),
-                   vec4(1.f, 1.f, 1.f, 1.f)};
+                   vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
     GPUSphere sphere3{vec4(100, 100, -100, 70), m3};
 
-    GPUTriangle triangle{vec4(0, 0, 0, 1),
-                         vec4(1, 0, 0, 1),
-                         vec4(0, 1, 0, 1),
-                         vec4(0, 0, 1, 1),
-                         vec4(0, 0, 1, 1),
-                         vec4(0, 0, 1, 1),
-                         m1};
+    vec4 c000{-6, -1, -11, 1};
+    vec4 c001{-6, -1, -9, 1};
+    vec4 c010{-6, 1, -11, 1};
+    vec4 c011{-6, 1, -9, 1};
+    vec4 c100{-4, -1, -11, 1};
+    vec4 c101{-4, -1, -9, 1};
+    vec4 c110{-4, 1, -11, 1};
+    vec4 c111{-4, 1, -9, 1};
+
+    auto cube_tri = [&](vec4 a, vec4 b, vec4 c, vec4 normal) {
+        return GPUTriangle{a, b, c, normal, normal, normal, m1};
+    };
+
+    std::vector<GPUTriangle> cube = {
+        // Front face (+Z)
+        cube_tri(c001, c101, c111, vec4(0, 0, 1, 0)),
+        cube_tri(c001, c111, c011, vec4(0, 0, 1, 0)),
+        // Back face (-Z)
+        cube_tri(c000, c110, c100, vec4(0, 0, -1, 0)),
+        cube_tri(c000, c010, c110, vec4(0, 0, -1, 0)),
+        // Left face (-X)
+        cube_tri(c000, c001, c011, vec4(-1, 0, 0, 0)),
+        cube_tri(c000, c011, c010, vec4(-1, 0, 0, 0)),
+        // Right face (+X)
+        cube_tri(c100, c110, c111, vec4(1, 0, 0, 0)),
+        cube_tri(c100, c111, c101, vec4(1, 0, 0, 0)),
+        // Top face (+Y)
+        cube_tri(c010, c011, c111, vec4(0, 1, 0, 0)),
+        cube_tri(c010, c111, c110, vec4(0, 1, 0, 0)),
+        // Bottom face (-Y)
+        cube_tri(c000, c100, c101, vec4(0, -1, 0, 0)),
+        cube_tri(c000, c101, c001, vec4(0, -1, 0, 0)),
+    };
 
     std::vector<GPUSphere> spheres = {sphere1, sphere1_2, sphere2, sphere3};
-    std::vector<GPUTriangle> triangles = {};
+    std::vector<GPUTriangle> triangles = cube;
 
     shader.setInt("sphereCount", spheres.size());
     shader.setInt("triangleCount", triangles.size());

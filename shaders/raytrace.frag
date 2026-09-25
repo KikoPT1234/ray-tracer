@@ -11,9 +11,14 @@ struct Ray {
 };
 
 struct Material {
+    // xyz = base tint/albedo, w = smoothness. Lower smoothness adds blur.
     vec4 color_smoothness;
+    // xyz = emitted light color, w = emitted light strength.
     vec4 emission_color_strength;
-    vec4 opacity;
+    // For glass: xyz = absorption per unit distance, w = refractive index.
+    vec4 glass_absorption_ior;
+    // x == 1 means dielectric/glass; anything else uses diffuse/specular scatter.
+    vec4 type;
 };
 
 struct Sphere {
@@ -63,6 +68,9 @@ uniform int frameCount;
 
 out vec4 FragColor;
 
+// Shared distance threshold for rejecting self-hits and nudging new rays off surfaces.
+const float RAY_EPSILON = 1e-5;
+
 float random(inout uint seed) {
     seed = seed * 747796405 + 2891336453;
     uint result = ((seed >> ((seed >> 28) + 4)) ^ seed) + 277803737;
@@ -84,6 +92,11 @@ vec3 random_unit_vector(inout uint seed) {
         r * sin(phi),
         z
     );
+}
+
+vec3 roughen_direction(vec3 direction, float roughness, inout uint seed) {
+    // Perturb perfect reflection/refraction to make rough glass or glossy blur.
+    return normalize(direction + random_unit_vector(seed) * roughness * roughness);
 }
 
 mat4 get_cam_matrix() {
@@ -116,7 +129,6 @@ vec3 get_left_top(vec2 viewport) {
 }
 
 void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
-    const float eps = 1e-10;
     vec3 ab = (triangle.v2 - triangle.v1).xyz;
     vec3 ac = (triangle.v3 - triangle.v1).xyz;
     vec3 normal_vector = cross(ab, ac);
@@ -124,7 +136,7 @@ void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
     vec3 dao = cross(ao, ray.direction);
 
     float determinant = -dot(ray.direction, normal_vector);
-    if (determinant < eps) {
+    if (determinant < RAY_EPSILON) {
         info.did_hit = false;
         return;
     }
@@ -133,19 +145,19 @@ void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
     // Calculate dst to triangle & barycentric coordinates of intersection
 
     float u = dot(ac, dao) * invDet;
-    if (u < eps || u - eps > 1.0) {
+    if (u < RAY_EPSILON || u - RAY_EPSILON > 1.0) {
         info.did_hit = false;
         return;
     }
 
     float v = -dot(ab, dao) * invDet;
-    if (v < eps || (v + u - eps) > 1.0) {
+    if (v < RAY_EPSILON || (v + u - RAY_EPSILON) > 1.0) {
         info.did_hit = false;
         return;
     }
 
     float dst = dot(ao, normal_vector) * invDet;
-    if (dst < eps) {
+    if (dst < RAY_EPSILON) {
         info.did_hit = false;
         return;
     }
@@ -175,16 +187,14 @@ void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
         return;
     }
 
-    float x;
-    if (discriminant == 0)
-        x = h / a;
-    else
-        x = (h - sqrt(discriminant)) / a;
+    float sqrt_discriminant = sqrt(discriminant);
+    float x = (h - sqrt_discriminant) / a;
 
-    if (x < 0)
-        x = (h + sqrt(discriminant)) / a;
+    // If the near root is behind/too close, try the far root so rays inside spheres can exit.
+    if (x <= RAY_EPSILON)
+        x = (h + sqrt_discriminant) / a;
 
-    if (x <= 1e-10)
+    if (x <= RAY_EPSILON)
         info.did_hit = false;
     else {
         info.did_hit = true;
@@ -201,8 +211,6 @@ HitInfo intersect_ray(Ray ray) {
     info.did_hit = false;
     info.t = 1.0 / 0.0;
 
-    float epsilon = 1e-8;
-
     for (int i = 0; i < sphereCount; i++) {
         Sphere sphere = spheres[i];
 
@@ -211,7 +219,7 @@ HitInfo intersect_ray(Ray ray) {
         sphere_intersection(sphere, ray, temp);
 
         if (temp.did_hit) {
-            if (temp.t < info.t && temp.t > epsilon) {
+            if (temp.t < info.t && temp.t > RAY_EPSILON) {
                 info = temp;
             }
         }        
@@ -225,7 +233,7 @@ HitInfo intersect_ray(Ray ray) {
         triangle_intersection(triangle, ray, temp);
 
         if (temp.did_hit) {
-            if (temp.t < info.t && temp.t > epsilon) {
+            if (temp.t < info.t && temp.t > RAY_EPSILON) {
                 info = temp;
             }
         }  
@@ -255,59 +263,58 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
             light += emitted_light * color;
             vec3 material_color = material.color_smoothness.xyz;
             float smoothness = material.color_smoothness.w;
-            vec3 diffuse_direction = normalize(hit.normal + random_unit_vector(seed));
-            vec3 specular_direction =
-                reflect(ray.direction, hit.normal);
+            vec3 direction;
+            vec3 glass_absorption = material.glass_absorption_ior.xyz;
+            float refractive_index = material.glass_absorption_ior.w;
+            float roughness = clamp(1.0 - smoothness, 0.0, 1.0);
 
-            vec3 opacity = material.opacity.xyz;
+            bool refracted = false;
 
-            vec3 refract_direction;
+            if (material.type.x == 1) {
+                vec3 outward_normal = hit.normal;
+                // Front-face tells us whether the ray is entering or leaving the glass.
+                bool front_face = dot(ray.direction, outward_normal) < 0.0;
+                vec3 normal = front_face ? outward_normal : -outward_normal;
+                float eta = front_face ? 1.0 / refractive_index : refractive_index;
+                float hit_cos = min(-dot(ray.direction, normal), 1.0);
+                float hit_sine2 = max(0.0, 1.0 - hit_cos * hit_cos);
+                float sine2_outgoing = hit_sine2 * eta * eta;
 
-            float R = 1;
+                vec3 reflect_direction = reflect(ray.direction, normal);
+                // If Snell's law would require sin(theta) > 1, this is total internal reflection.
+                bool cannot_refract = sine2_outgoing > 1.0;
+                float reflectance = 1.0;
 
-            if (opacity != vec3(1.0f, 1.0f, 1.0f)) {
-                float hit_cos = -dot(ray.direction, hit.normal);
-                float hit_sine2 = 1 - hit_cos * hit_cos;
-                float refractive_index = material.opacity.w;
-                float n1;
-                float n2;
+                if (!cannot_refract) {
+                    float cos_outgoing = sqrt(max(0.0, 1.0 - sine2_outgoing));
+                    // Schlick approximation: probability that this bounce reflects instead of refracts.
+                    float r0 = (1.0 - refractive_index) / (1.0 + refractive_index);
+                    r0 *= r0;
+                    reflectance = r0 + (1.0 - r0) * pow(1.0 - hit_cos, 5.0);
 
-                if (hit_cos >= 0) {
-                    n1 = 1;
-                    n2 = refractive_index;
+                    vec3 refract_direction =
+                        eta * ray.direction + (eta * hit_cos - cos_outgoing) * normal;
+
+                    refracted = random(seed) >= reflectance;
+                    direction = refracted ? refract_direction : reflect_direction;
                 } else {
-                    n1 = refractive_index;
-                    n2 = 1;
-                    hit.normal = -hit.normal;
-                    hit_cos = -hit_cos;
+                    direction = reflect_direction;
                 }
 
-                float n = n1 / n2;
+                if (!front_face) {
+                    // Beer-Lambert absorption: longer paths through glass tint/darken more.
+                    color *= exp(-max(glass_absorption, vec3(0.0)) * hit.t);
+                }
 
-                float sine2_outgoing = hit_sine2 * n * n;
-
-                float cos_outgoing = sqrt(1 - sine2_outgoing);
-
-                refract_direction = normalize(n * ray.direction + (n * hit_cos - cos_outgoing) * hit.normal);
-
-                float schlick_cos = n1 <= n2 ? hit_cos : cos_outgoing;
-            
-                float R0 = pow(((n1 - n2) / (n1 + n2)), 2);
-                R = R0 + (1 - R0) * pow((1 - schlick_cos), 5);
-            }
-            
-            
-            vec3 reflect_direction =
-                normalize(lerp(diffuse_direction, specular_direction, smoothness));
-
-            vec3 direction;
-            bool refracted = random(seed) >= R;
-
-            if (!refracted) {            
+                direction = roughen_direction(direction, roughness, seed);
                 color *= material_color;
-                direction = reflect_direction;
             } else {
-                direction = refract_direction;
+                vec3 diffuse_direction = normalize(hit.normal + random_unit_vector(seed));
+                vec3 specular_direction = reflect(ray.direction, hit.normal);
+                vec3 reflect_direction =
+                    normalize(lerp(diffuse_direction, specular_direction, smoothness));
+
+                direction = roughen_direction(reflect_direction, roughness, seed);
                 color *= material_color;
             }
 
@@ -319,7 +326,10 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
 
             // color *= 1.0 / p;
 
-            ray = Ray(hit.point + (refracted ? -hit.normal * 1e-8 : hit.normal * 1e-8), direction);
+            // Offset toward the side the next ray is actually travelling into.
+            // This avoids self-intersection rings, especially for internal glass reflection.
+            float offset_side = dot(direction, hit.normal) < 0.0 ? -1.0 : 1.0;
+            ray = Ray(hit.point + hit.normal * offset_side * RAY_EPSILON, direction);
         } else {
             vec3 unit_direction = normalize(ray.direction);
             float a = 0.5 * (unit_direction.y + 1.0);
