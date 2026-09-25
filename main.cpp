@@ -363,58 +363,77 @@ int main() {
     shader.use();
     raytrace_shader_id = shader.ID;
 
-    GPUMaterial m1{vec4(1.f, 1.f, 1.f, .95f), vec4(1.f, 1.f, 1.f, 0.f),
+    GPUMaterial m1{vec4(1.f, 1.f, 1.f, 1.f), vec4(1.f, 1.f, 1.f, 0.f),
                    vec4(0.f, 0.f, 0.f, 1.5f), vec4(1, 0, 0, 0)};
-    GPUSphere sphere1{vec4(0, 0, -10, 3), m1};
+    GPUMaterial red_wall{vec4(.9f, .08f, .06f, .35f), vec4(1.f, 1.f, 1.f, 0.f),
+                         vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
+    GPUMaterial green_wall{vec4(.08f, .75f, .12f, .35f),
+                           vec4(1.f, 1.f, 1.f, 0.f), vec4(0.f, 0.f, 0.f, 1.f),
+                           vec4(0, 0, 0, 0)};
+    GPUMaterial blue_wall{vec4(.08f, .16f, .9f, .35f), vec4(1.f, 1.f, 1.f, 0.f),
+                          vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
+    GPUMaterial gray_wall{vec4(.78f, .78f, .78f, .25f),
+                          vec4(1.f, 1.f, 1.f, 0.f), vec4(0.f, 0.f, 0.f, 1.f),
+                          vec4(0, 0, 0, 0)};
+    GPUMaterial light_material{vec4(1.f, 1.f, 1.f, 0.f),
+                               vec4(1.f, .92f, .78f, 18.f),
+                               vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
 
-    GPUMaterial m1_2{vec4(.8f, .1f, .8f, .2f), vec4(.8f, .1f, .8f, 0.f),
-                     vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
-    GPUSphere sphere1_2{vec4(8, 0, -10, 3), m1_2};
+    GPUSphere ceiling_light{vec4(0, 3.65f, -11, .35f), light_material};
 
-    GPUMaterial m2{vec4(.9f, .9f, .9f, .2f), vec4(1.f, 1.f, 1.f, 0.f),
-                   vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
-    GPUSphere sphere2{vec4(0, -60, -10, 58), m2};
-
-    GPUMaterial m3{vec4(1, 1, 1, .0f), vec4(1.f, 1.f, 1.f, 5.f),
-                   vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
-    GPUSphere sphere3{vec4(100, 100, -100, 70), m3};
-
-    vec4 c000{-6, -1, -11, 1};
-    vec4 c001{-6, -1, -9, 1};
-    vec4 c010{-6, 1, -11, 1};
-    vec4 c011{-6, 1, -9, 1};
-    vec4 c100{-4, -1, -11, 1};
-    vec4 c101{-4, -1, -9, 1};
-    vec4 c110{-4, 1, -11, 1};
-    vec4 c111{-4, 1, -9, 1};
-
-    auto cube_tri = [&](vec4 a, vec4 b, vec4 c, vec4 normal) {
-        return GPUTriangle{a, b, c, normal, normal, normal, m1};
+    auto tri = [](vec4 a, vec4 b, vec4 c, vec4 normal, GPUMaterial material) {
+        return GPUTriangle{a, b, c, normal, normal, normal, material};
     };
 
-    std::vector<GPUTriangle> cube = {
-        // Front face (+Z)
-        cube_tri(c001, c101, c111, vec4(0, 0, 1, 0)),
-        cube_tri(c001, c111, c011, vec4(0, 0, 1, 0)),
-        // Back face (-Z)
-        cube_tri(c000, c110, c100, vec4(0, 0, -1, 0)),
-        cube_tri(c000, c010, c110, vec4(0, 0, -1, 0)),
-        // Left face (-X)
-        cube_tri(c000, c001, c011, vec4(-1, 0, 0, 0)),
-        cube_tri(c000, c011, c010, vec4(-1, 0, 0, 0)),
-        // Right face (+X)
-        cube_tri(c100, c110, c111, vec4(1, 0, 0, 0)),
-        cube_tri(c100, c111, c101, vec4(1, 0, 0, 0)),
-        // Top face (+Y)
-        cube_tri(c010, c011, c111, vec4(0, 1, 0, 0)),
-        cube_tri(c010, c111, c110, vec4(0, 1, 0, 0)),
-        // Bottom face (-Y)
-        cube_tri(c000, c100, c101, vec4(0, -1, 0, 0)),
-        cube_tri(c000, c101, c001, vec4(0, -1, 0, 0)),
+    std::vector<GPUTriangle> triangles;
+    auto add_quad = [&](vec4 a, vec4 b, vec4 c, vec4 d, vec4 normal,
+                        GPUMaterial material) {
+        triangles.push_back(tri(a, b, c, normal, material));
+        triangles.push_back(tri(a, c, d, normal, material));
     };
 
-    std::vector<GPUSphere> spheres = {sphere1, sphere1_2, sphere2, sphere3};
-    std::vector<GPUTriangle> triangles = cube;
+    const float left = -4.0f;
+    const float right = 4.0f;
+    const float bottom = -3.0f;
+    const float top = 4.0f;
+    const float front = -5.0f;
+    const float back = -17.0f;
+
+    // Five room walls. The front is open so the camera can look inside.
+    add_quad(vec4(left, bottom, back, 1), vec4(right, bottom, back, 1),
+             vec4(right, top, back, 1), vec4(left, top, back, 1),
+             vec4(0, 0, 1, 0), red_wall);
+    add_quad(vec4(left, bottom, front, 1), vec4(left, bottom, back, 1),
+             vec4(left, top, back, 1), vec4(left, top, front, 1),
+             vec4(1, 0, 0, 0), green_wall);
+    add_quad(vec4(right, bottom, back, 1), vec4(right, bottom, front, 1),
+             vec4(right, top, front, 1), vec4(right, top, back, 1),
+             vec4(-1, 0, 0, 0), blue_wall);
+    add_quad(vec4(left, top, back, 1), vec4(right, top, back, 1),
+             vec4(right, top, front, 1), vec4(left, top, front, 1),
+             vec4(0, -1, 0, 0), gray_wall);
+    add_quad(vec4(left, bottom, front, 1), vec4(right, bottom, front, 1),
+             vec4(right, bottom, back, 1), vec4(left, bottom, back, 1),
+             vec4(0, 1, 0, 0), gray_wall);
+
+    vec4 c000{-1, -2, -12, 1};
+    vec4 c001{-1, -2, -10, 1};
+    vec4 c010{-1, 0, -12, 1};
+    vec4 c011{-1, 0, -10, 1};
+    vec4 c100{1, -2, -12, 1};
+    vec4 c101{1, -2, -10, 1};
+    vec4 c110{1, 0, -12, 1};
+    vec4 c111{1, 0, -10, 1};
+
+    // Glass cube in the middle of the room.
+    add_quad(c001, c101, c111, c011, vec4(0, 0, 1, 0), m1);
+    add_quad(c000, c010, c110, c100, vec4(0, 0, -1, 0), m1);
+    add_quad(c000, c001, c011, c010, vec4(-1, 0, 0, 0), m1);
+    add_quad(c100, c110, c111, c101, vec4(1, 0, 0, 0), m1);
+    add_quad(c010, c011, c111, c110, vec4(0, 1, 0, 0), m1);
+    add_quad(c000, c100, c101, c001, vec4(0, -1, 0, 0), m1);
+
+    std::vector<GPUSphere> spheres = {ceiling_light};
 
     shader.setInt("sphereCount", spheres.size());
     shader.setInt("triangleCount", triangles.size());

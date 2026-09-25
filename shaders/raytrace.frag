@@ -70,6 +70,7 @@ out vec4 FragColor;
 
 // Shared distance threshold for rejecting self-hits and nudging new rays off surfaces.
 const float RAY_EPSILON = 1e-5;
+const float BARY_EPSILON = 1e-6;
 
 float random(inout uint seed) {
     seed = seed * 747796405 + 2891336453;
@@ -133,43 +134,54 @@ void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
     vec3 ac = (triangle.v3 - triangle.v1).xyz;
     vec3 normal_vector = cross(ab, ac);
     vec3 ao = ray.origin - triangle.v1.xyz;
-    vec3 dao = cross(ao, ray.direction);
 
-    float determinant = -dot(ray.direction, normal_vector);
-    if (determinant < RAY_EPSILON) {
+    vec3 pvec = cross(ray.direction, ac);
+    float determinant = dot(ab, pvec);
+    bool two_sided = triangle.material.type.x == 1;
+
+    if ((!two_sided && determinant < RAY_EPSILON) ||
+        (two_sided && abs(determinant) < RAY_EPSILON)) {
         info.did_hit = false;
         return;
     }
+
     float invDet = 1.0 / determinant;
 
-    // Calculate dst to triangle & barycentric coordinates of intersection
-
-    float u = dot(ac, dao) * invDet;
-    if (u < RAY_EPSILON || u - RAY_EPSILON > 1.0) {
+    // Calculate dst to triangle & barycentric coordinates of intersection.
+    // Glass is two-sided, so negative determinants are allowed and handled by invDet.
+    float u = dot(ao, pvec) * invDet;
+    if (u < -BARY_EPSILON || u > 1.0 + BARY_EPSILON) {
         info.did_hit = false;
         return;
     }
 
-    float v = -dot(ab, dao) * invDet;
-    if (v < RAY_EPSILON || (v + u - RAY_EPSILON) > 1.0) {
+    vec3 qvec = cross(ao, ab);
+    float v = dot(ray.direction, qvec) * invDet;
+    if (v < -BARY_EPSILON || v + u > 1.0 + BARY_EPSILON) {
         info.did_hit = false;
         return;
     }
 
-    float dst = dot(ao, normal_vector) * invDet;
+    float dst = dot(ac, qvec) * invDet;
     if (dst < RAY_EPSILON) {
         info.did_hit = false;
         return;
     }
 
-    float w = 1 - u - v;
+    u = clamp(u, 0.0, 1.0);
+    v = clamp(v, 0.0, 1.0);
+    float w = clamp(1.0 - u - v, 0.0, 1.0);
 
     // Initialize hit info
     info.did_hit = true;
     info.isTriangle = true;
     info.triangle = triangle;
     info.point = ray.origin + ray.direction * dst;
-    info.normal = normalize(triangle.n1.xyz * w + triangle.n2.xyz * u + triangle.n3.xyz * v);
+    if (two_sided) {
+        info.normal = normalize(normal_vector);
+    } else {
+        info.normal = normalize(triangle.n1.xyz * w + triangle.n2.xyz * u + triangle.n3.xyz * v);
+    }
     info.t = dst;
 }
 
@@ -299,6 +311,8 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
                     direction = refracted ? refract_direction : reflect_direction;
                 } else {
                     direction = reflect_direction;
+                    color = vec3(1, 1, 1);
+                    // light = vec3(1, 1, 1);
                 }
 
                 if (!front_face) {
@@ -388,7 +402,7 @@ void main()
     vec2 uv = gl_FragCoord.xy / resolution;
 
     vec4 prev = texture(prevFrame, uv);
-    vec4 current = vec4(trace_ray(ray, 5, seed), 1);
+    vec4 current = vec4(trace_ray(ray, 7, seed), 1);
 
     float w = 1.0 / float(frameCount + 1);
 
