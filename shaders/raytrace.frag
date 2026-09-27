@@ -132,7 +132,6 @@ vec3 get_left_top(vec2 viewport) {
 void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
     vec3 ab = (triangle.v2 - triangle.v1).xyz;
     vec3 ac = (triangle.v3 - triangle.v1).xyz;
-    vec3 normal_vector = cross(ab, ac);
     vec3 ao = ray.origin - triangle.v1.xyz;
 
     vec3 pvec = cross(ray.direction, ac);
@@ -186,22 +185,21 @@ void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
     vec3 op = sphere.position_radius.xyz - ray.origin.xyz;
     vec3 rd = ray.direction.xyz;
     float radius = sphere.position_radius.w;
-    float a = dot(rd, rd);
     float h = dot(rd, op);
     float c = dot(op, op) - radius * radius;
 
-    float discriminant = h * h - a * c;
+    float discriminant = h * h - c;
     if (discriminant < 0) {
         info.did_hit = false;
         return;
     }
 
     float sqrt_discriminant = sqrt(discriminant);
-    float x = (h - sqrt_discriminant) / a;
+    float x = (h - sqrt_discriminant);
 
     // If the near root is behind/too close, try the far root so rays inside spheres can exit.
     if (x <= RAY_EPSILON)
-        x = (h + sqrt_discriminant) / a;
+        x = (h + sqrt_discriminant);
 
     if (x <= RAY_EPSILON)
         info.did_hit = false;

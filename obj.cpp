@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "scene.cpp"
 #include "shape.cpp"
 
 struct ObjIndex {
@@ -41,15 +42,13 @@ static ObjIndex parse_face_token(const std::string &token) {
     return idx;
 }
 
-struct ObjTriangle {
-    vec3 vertices[3];
-    vec3 normals[3];
-};
-
-// Loads an OBJ file as a flat list of triangles with per-vertex normals.
-// Faces without normals get the geometric normal from their winding.
-std::vector<ObjTriangle> load_obj(const std::string &filename) {
-    std::vector<ObjTriangle> triangles;
+// Loads an OBJ file as a list of GPU triangles, placed in the world by
+// `transform`. Faces without normals get the geometric normal from their
+// winding.
+std::vector<GPUTriangle> load_obj(const std::string &filename,
+                                  const GPUMaterial &material,
+                                  const mat4 &transform = identity<mat4>()) {
+    std::vector<GPUTriangle> triangles;
 
     std::vector<vec3> positions;
     std::vector<vec3> normals;
@@ -59,6 +58,8 @@ std::vector<ObjTriangle> load_obj(const std::string &filename) {
         std::cerr << "Failed to open OBJ file: " << filename << "\n";
         return triangles;
     }
+
+    mat3 normal_transform = transpose(inverse(mat3(transform)));
 
     std::string line;
     while (std::getline(file, line)) {
@@ -70,14 +71,14 @@ std::vector<ObjTriangle> load_obj(const std::string &filename) {
         if (type == "v") {
             vec3 v;
             ss >> v.x >> v.y >> v.z;
-            positions.push_back(v);
+            positions.push_back(vec3(transform * vec4(v, 1)));
         }
 
         // Vertex normal
         else if (type == "vn") {
             vec3 n;
             ss >> n.x >> n.y >> n.z;
-            normals.push_back(normalize(n));
+            normals.push_back(normalize(normal_transform * n));
         }
 
         // Face
@@ -96,20 +97,19 @@ std::vector<ObjTriangle> load_obj(const std::string &filename) {
             for (size_t i = 1; i + 1 < face.size(); ++i) {
                 const ObjIndex *indices[3] = {&face[0], &face[i], &face[i + 1]};
 
-                ObjTriangle tri;
+                vec3 v[3];
                 for (int j = 0; j < 3; j++)
-                    tri.vertices[j] = positions[indices[j]->v];
+                    v[j] = positions[indices[j]->v];
 
-                vec3 face_normal =
-                    normalize(cross(tri.vertices[1] - tri.vertices[0],
-                                    tri.vertices[2] - tri.vertices[0]));
+                vec3 face_normal = normalize(cross(v[1] - v[0], v[2] - v[0]));
 
+                vec3 n[3];
                 for (int j = 0; j < 3; j++)
-                    tri.normals[j] = (indices[j]->vn >= 0)
-                                         ? normals[indices[j]->vn]
-                                         : face_normal;
+                    n[j] = (indices[j]->vn >= 0) ? normals[indices[j]->vn]
+                                                 : face_normal;
 
-                triangles.push_back(tri);
+                triangles.emplace_back(v[0], v[1], v[2], n[0], n[1], n[2],
+                                       material);
             }
         }
     }
