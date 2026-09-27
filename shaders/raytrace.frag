@@ -70,11 +70,11 @@ out vec4 FragColor;
 
 // Shared distance threshold for rejecting self-hits and nudging new rays off surfaces.
 const float RAY_EPSILON = 1e-5;
-const float BARY_EPSILON = 1e-6;
+const float BARY_EPSILON = 1e-7;
 
 float random(inout uint seed) {
     seed = seed * 747796405 + 2891336453;
-    uint result = ((seed >> ((seed >> 28) + 4)) ^ seed) + 277803737;
+    uint result = ((seed >> ((seed >> 28) + 4)) ^ seed) * 277803737;
     result = (result >> 22) ^ result;
     return result / 4294967295.0;
 }
@@ -177,11 +177,8 @@ void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
     info.isTriangle = true;
     info.triangle = triangle;
     info.point = ray.origin + ray.direction * dst;
-    if (two_sided) {
-        info.normal = normalize(normal_vector);
-    } else {
-        info.normal = normalize(triangle.n1.xyz * w + triangle.n2.xyz * u + triangle.n3.xyz * v);
-    }
+    info.normal = normalize(triangle.n1.xyz * w + triangle.n2.xyz * u + triangle.n3.xyz * v);
+    
     info.t = dst;
 }
 
@@ -258,102 +255,123 @@ vec3 lerp(vec3 a, vec3 b, float h) {
     return a * (1.0f-h) + b * h;
 }
 
+Material get_material(HitInfo hit) {
+    if (hit.isTriangle) return hit.triangle.material;
+    return hit.sphere.material;
+}
+
+// Diffuse/specular bounce off a surface, blended by the material's smoothness.
+vec3 calculate_reflection(Ray ray, Material material, vec3 normal, inout uint seed) {
+    float smoothness = material.color_smoothness.w;
+    vec3 diffuse_direction = normalize(normal + random_unit_vector(seed));
+    vec3 specular_direction = reflect(ray.direction, normal);
+    vec3 reflect_direction =
+        normalize(lerp(diffuse_direction, specular_direction, smoothness));
+
+    return reflect_direction;
+}
+
+// Glass bounce: randomly reflects or refracts according to Fresnel (Schlick),
+// and applies Beer-Lambert absorption to `color` when the ray exits the glass.
+vec3 calculate_refraction(Ray ray, HitInfo hit, Material material, inout vec3 color,
+                          inout uint seed) {
+    vec3 glass_absorption = material.glass_absorption_ior.xyz;
+    float refractive_index = material.glass_absorption_ior.w;
+
+    vec3 outward_normal = hit.normal;
+    // Front-face tells us whether the ray is entering or leaving the glass.
+    bool front_face = dot(ray.direction, outward_normal) < 0.0;
+    vec3 normal = front_face ? outward_normal : -outward_normal;
+    float eta = front_face ? 1.0 / refractive_index : refractive_index;
+    float hit_cos = min(-dot(ray.direction, normal), 1.0);
+    float hit_sine2 = max(0.0, 1.0 - hit_cos * hit_cos);
+    float sine2_outgoing = hit_sine2 * eta * eta;
+
+    vec3 reflect_direction = calculate_reflection(ray, material, normal, seed);
+    // If Snell's law would require sin(theta) > 1, this is total internal reflection.
+    bool cannot_refract = sine2_outgoing > 1.0;
+    vec3 direction = reflect_direction;
+
+    if (!cannot_refract) {
+        float cos_outgoing = sqrt(max(0.0, 1.0 - sine2_outgoing));
+        // Schlick approximation: probability that this bounce reflects instead of refracts.
+        float r0 = (1.0 - refractive_index) / (1.0 + refractive_index);
+        r0 *= r0;
+        float reflectance = r0 + (1.0 - r0) * pow(1.0 - (eta <= 1 ? hit_cos : cos_outgoing), 5.0);
+
+        vec3 refract_direction =
+            eta * ray.direction + (eta * hit_cos - cos_outgoing) * normal;
+
+        bool refracted = random(seed) >= reflectance;
+        direction = refracted ? refract_direction : reflect_direction;
+    }
+
+    if (!front_face) {
+        // Beer-Lambert absorption: longer paths through glass tint/darken more.
+        color *= exp(-max(glass_absorption, vec3(0.0)) * hit.t);
+    }
+
+    return direction;
+}
+
+// Picks the next ray direction for a hit, updating `color` for any absorption.
+vec3 scatter(Ray ray, HitInfo hit, Material material, inout vec3 color, inout uint seed) {
+    float smoothness = material.color_smoothness.w;
+    float roughness = clamp(1.0 - smoothness, 0.0, 1.0);
+
+    vec3 direction;
+    if (material.type.x == 1) {
+        direction = calculate_refraction(ray, hit, material, color, seed);
+    } else {
+        direction = calculate_reflection(ray, material, hit.normal, seed);
+    }
+
+    return roughen_direction(direction, roughness, seed);
+}
+
+vec3 environment_light(vec3 direction) {
+    vec3 unit_direction = normalize(direction);
+    float a = 0.5 * (unit_direction.y + 1.0);
+    vec3 environment_light = ((1.0 - a) * vec3(1.0, 1.0, 1.0) +
+                                a * vec3(0.1, 0.4, 1.0));
+    float sky_intensity = 1;
+    // vec3 environment_light{0, 0, 0};
+    return environment_light * sky_intensity;
+}
+
 vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
     vec3 color = vec3(1, 1, 1);
     vec3 light = vec3(0, 0, 0);
 
     for (int i = 0; i <= bounces; i++) {
         HitInfo hit = intersect_ray(ray);
-        if (hit.did_hit) {
-            Material material;
-            if (hit.isTriangle) material = hit.triangle.material;
-            else material = hit.sphere.material;
-
-            vec3 emission_color = material.emission_color_strength.xyz;
-            float emission_strength = material.emission_color_strength.w;
-            vec3 emitted_light = emission_color * emission_strength;
-            light += emitted_light * color;
-            vec3 material_color = material.color_smoothness.xyz;
-            float smoothness = material.color_smoothness.w;
-            vec3 direction;
-            vec3 glass_absorption = material.glass_absorption_ior.xyz;
-            float refractive_index = material.glass_absorption_ior.w;
-            float roughness = clamp(1.0 - smoothness, 0.0, 1.0);
-
-            bool refracted = false;
-
-            if (material.type.x == 1) {
-                vec3 outward_normal = hit.normal;
-                // Front-face tells us whether the ray is entering or leaving the glass.
-                bool front_face = dot(ray.direction, outward_normal) < 0.0;
-                vec3 normal = front_face ? outward_normal : -outward_normal;
-                float eta = front_face ? 1.0 / refractive_index : refractive_index;
-                float hit_cos = min(-dot(ray.direction, normal), 1.0);
-                float hit_sine2 = max(0.0, 1.0 - hit_cos * hit_cos);
-                float sine2_outgoing = hit_sine2 * eta * eta;
-
-                vec3 reflect_direction = reflect(ray.direction, normal);
-                // If Snell's law would require sin(theta) > 1, this is total internal reflection.
-                bool cannot_refract = sine2_outgoing > 1.0;
-                float reflectance = 1.0;
-
-                if (!cannot_refract) {
-                    float cos_outgoing = sqrt(max(0.0, 1.0 - sine2_outgoing));
-                    // Schlick approximation: probability that this bounce reflects instead of refracts.
-                    float r0 = (1.0 - refractive_index) / (1.0 + refractive_index);
-                    r0 *= r0;
-                    reflectance = r0 + (1.0 - r0) * pow(1.0 - hit_cos, 5.0);
-
-                    vec3 refract_direction =
-                        eta * ray.direction + (eta * hit_cos - cos_outgoing) * normal;
-
-                    refracted = random(seed) >= reflectance;
-                    direction = refracted ? refract_direction : reflect_direction;
-                } else {
-                    direction = reflect_direction;
-                    color = vec3(1, 1, 1);
-                    // light = vec3(1, 1, 1);
-                }
-
-                if (!front_face) {
-                    // Beer-Lambert absorption: longer paths through glass tint/darken more.
-                    color *= exp(-max(glass_absorption, vec3(0.0)) * hit.t);
-                }
-
-                direction = roughen_direction(direction, roughness, seed);
-                color *= material_color;
-            } else {
-                vec3 diffuse_direction = normalize(hit.normal + random_unit_vector(seed));
-                vec3 specular_direction = reflect(ray.direction, hit.normal);
-                vec3 reflect_direction =
-                    normalize(lerp(diffuse_direction, specular_direction, smoothness));
-
-                direction = roughen_direction(reflect_direction, roughness, seed);
-                color *= material_color;
-            }
-
-            // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
-            // float p = max(color.r, max(color.g, color.b));
-            // if (random(seed) >= p) {
-            //     break;
-            // }
-
-            // color *= 1.0 / p;
-
-            // Offset toward the side the next ray is actually travelling into.
-            // This avoids self-intersection rings, especially for internal glass reflection.
-            float offset_side = dot(direction, hit.normal) < 0.0 ? -1.0 : 1.0;
-            ray = Ray(hit.point + hit.normal * offset_side * RAY_EPSILON, direction);
-        } else {
-            vec3 unit_direction = normalize(ray.direction);
-            float a = 0.5 * (unit_direction.y + 1.0);
-            vec3 environment_light = ((1.0 - a) * vec3(1.0, 1.0, 1.0) +
-                                        a * vec3(0.1, 0.4, 1.0));
-            float sky_intensity = 1;
-            // vec3 environment_light{0, 0, 0};
-            light += color * environment_light * sky_intensity;
+        if (!hit.did_hit) {
+            light += color * environment_light(ray.direction);
             break;
         }
+
+        Material material = get_material(hit);
+
+        vec3 emission_color = material.emission_color_strength.xyz;
+        float emission_strength = material.emission_color_strength.w;
+        vec3 emitted_light = emission_color * emission_strength;
+        light += emitted_light * color;
+        color *= material.color_smoothness.xyz;
+
+        vec3 direction = scatter(ray, hit, material, color, seed);
+
+        // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
+        // float p = max(color.r, max(color.g, color.b));
+        // if (random(seed) >= p) {
+        //     break;
+        // }
+
+        // color *= 1.0 / p;
+
+        // Offset toward the side the next ray is actually travelling into.
+        // This avoids self-intersection rings, especially for internal glass reflection.
+        float offset_side = dot(direction, hit.normal) < 0.0 ? -1.0 : 1.0;
+        ray = Ray(hit.point + hit.normal * offset_side * RAY_EPSILON, direction);
     }
 
     return light;

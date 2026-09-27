@@ -364,22 +364,31 @@ int main() {
     raytrace_shader_id = shader.ID;
 
     GPUMaterial m1{vec4(1.f, 1.f, 1.f, 1.f), vec4(1.f, 1.f, 1.f, 0.f),
-                   vec4(0.f, 0.f, 0.f, 1.5f), vec4(1, 0, 0, 0)};
-    GPUMaterial red_wall{vec4(.9f, .08f, .06f, .35f), vec4(1.f, 1.f, 1.f, 0.f),
+                   vec4(0.05f, 0.05f, 0.05f, 1.5f), vec4(1, 0, 0, 0)};
+
+    vec3 red_color = rgb_to_vec3(240, 101, 101);
+    vec3 green_color = rgb_to_vec3(88, 224, 108);
+    vec3 blue_color = rgb_to_vec3(29, 102, 219);
+
+    GPUMaterial red_wall{vec4(red_color, .2f), vec4(1.f, 1.f, 1.f, 0.f),
                          vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
-    GPUMaterial green_wall{vec4(.08f, .75f, .12f, .35f),
+
+    GPUMaterial green_wall{vec4(green_color, .2f),
                            vec4(1.f, 1.f, 1.f, 0.f), vec4(0.f, 0.f, 0.f, 1.f),
                            vec4(0, 0, 0, 0)};
-    GPUMaterial blue_wall{vec4(.08f, .16f, .9f, .35f), vec4(1.f, 1.f, 1.f, 0.f),
+
+    GPUMaterial blue_wall{vec4(blue_color, .2f), vec4(1.f, 1.f, 1.f, 0.f),
                           vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
-    GPUMaterial gray_wall{vec4(.78f, .78f, .78f, .25f),
+
+    GPUMaterial gray_wall{vec4(1.f, 1.f, 1.f, .3f),
                           vec4(1.f, 1.f, 1.f, 0.f), vec4(0.f, 0.f, 0.f, 1.f),
                           vec4(0, 0, 0, 0)};
+
     GPUMaterial light_material{vec4(1.f, 1.f, 1.f, 0.f),
-                               vec4(1.f, .92f, .78f, 18.f),
+                               vec4(.95f, .90f, .68f, 4.f),
                                vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
 
-    GPUSphere ceiling_light{vec4(0, 3.65f, -11, .35f), light_material};
+    GPUSphere ceiling_light{vec4(0, 3.65f, -11, .8f), light_material};
 
     auto tri = [](vec4 a, vec4 b, vec4 c, vec4 normal, GPUMaterial material) {
         return GPUTriangle{a, b, c, normal, normal, normal, material};
@@ -399,46 +408,95 @@ int main() {
     const float front = -5.0f;
     const float back = -17.0f;
 
-    // Five room walls. The front is open so the camera can look inside.
+    // Six room walls. The front wall faces inward, so backface culling lets the
+    // camera see into the room from outside.
     add_quad(vec4(left, bottom, back, 1), vec4(right, bottom, back, 1),
              vec4(right, top, back, 1), vec4(left, top, back, 1),
-             vec4(0, 0, 1, 0), red_wall);
+             vec4(0, 0, 1, 0), blue_wall);
     add_quad(vec4(left, bottom, front, 1), vec4(left, bottom, back, 1),
              vec4(left, top, back, 1), vec4(left, top, front, 1),
-             vec4(1, 0, 0, 0), green_wall);
+             vec4(1, 0, 0, 0), red_wall);
     add_quad(vec4(right, bottom, back, 1), vec4(right, bottom, front, 1),
              vec4(right, top, front, 1), vec4(right, top, back, 1),
-             vec4(-1, 0, 0, 0), blue_wall);
+             vec4(-1, 0, 0, 0), green_wall);
     add_quad(vec4(left, top, back, 1), vec4(right, top, back, 1),
              vec4(right, top, front, 1), vec4(left, top, front, 1),
              vec4(0, -1, 0, 0), gray_wall);
     add_quad(vec4(left, bottom, front, 1), vec4(right, bottom, front, 1),
              vec4(right, bottom, back, 1), vec4(left, bottom, back, 1),
              vec4(0, 1, 0, 0), gray_wall);
+    add_quad(vec4(left, bottom, front, 1), vec4(left, top, front, 1),
+             vec4(right, top, front, 1), vec4(right, bottom, front, 1),
+             vec4(0, 0, -1, 0), gray_wall);
 
-    vec4 c000{-1, -2, -12, 1};
-    vec4 c001{-1, -2, -10, 1};
-    vec4 c010{-1, 0, -12, 1};
-    vec4 c011{-1, 0, -10, 1};
-    vec4 c100{1, -2, -12, 1};
-    vec4 c101{1, -2, -10, 1};
-    vec4 c110{1, 0, -12, 1};
-    vec4 c111{1, 0, -10, 1};
+    // Adds a cube spanning [-1, 1] on each axis in object space, placed in the
+    // world by `transform`.
+    auto add_cube = [&](const mat4 &transform, GPUMaterial material) {
+        mat3 normal_transform = transpose(inverse(mat3(transform)));
+        auto corner = [&](float x, float y, float z) {
+            return transform * vec4(x, y, z, 1);
+        };
+        auto normal = [&](float x, float y, float z) {
+            return vec4(normalize(normal_transform * vec3(x, y, z)), 0);
+        };
+
+        vec4 c000 = corner(-1, -1, -1);
+        vec4 c001 = corner(-1, -1, 1);
+        vec4 c010 = corner(-1, 1, -1);
+        vec4 c011 = corner(-1, 1, 1);
+        vec4 c100 = corner(1, -1, -1);
+        vec4 c101 = corner(1, -1, 1);
+        vec4 c110 = corner(1, 1, -1);
+        vec4 c111 = corner(1, 1, 1);
+
+        add_quad(c001, c101, c111, c011, normal(0, 0, 1), material);
+        add_quad(c000, c010, c110, c100, normal(0, 0, -1), material);
+        add_quad(c000, c001, c011, c010, normal(-1, 0, 0), material);
+        add_quad(c100, c110, c111, c101, normal(1, 0, 0), material);
+        add_quad(c010, c011, c111, c110, normal(0, 1, 0), material);
+        add_quad(c000, c100, c101, c001, normal(0, -1, 0), material);
+    };
 
     // Glass cube in the middle of the room.
-    add_quad(c001, c101, c111, c011, vec4(0, 0, 1, 0), m1);
-    add_quad(c000, c010, c110, c100, vec4(0, 0, -1, 0), m1);
-    add_quad(c000, c001, c011, c010, vec4(-1, 0, 0, 0), m1);
-    add_quad(c100, c110, c111, c101, vec4(1, 0, 0, 0), m1);
-    add_quad(c010, c011, c111, c110, vec4(0, 1, 0, 0), m1);
-    add_quad(c000, c100, c101, c001, vec4(0, -1, 0, 0), m1);
+    mat4 cube_transform = translate(identity<mat4>(), vec3(0.f, -1.f, -8.5f)) *
+                          rotate(identity<mat4>(), quarter_pi<float>(), vec3(0.f, 1.f, 0.f)) *
+                          scale(identity<mat4>(), vec3(1.f, 1.f, 1.f));
+    // add_cube(cube_transform, m1);
 
-    std::vector<GPUSphere> spheres = {ceiling_light};
+    // Monkey sitting on the floor behind the glass cube, facing the camera.
+    GPUMaterial monkey_material{vec4(.85f, .6f, .2f, .6f),
+                                vec4(1.f, 1.f, 1.f, 0.f),
+                                vec4(0.f, 0.f, 0.f, 1.f), vec4(0, 0, 0, 0)};
+
+    const float monkey_scale = 0.8f;
+    mat4 monkey_transform =
+        translate(identity<mat4>(),
+                  vec3(0.f, 1., -10.5f)) *
+        scale(identity<mat4>(), vec3(monkey_scale));
+    mat3 monkey_normal_transform =
+        transpose(inverse(mat3(monkey_transform)));
+
+    for (const ObjTriangle &t : load_obj("assets/monkey.obj")) {
+        GPUTriangle triangle;
+        vec4 *vertices[3] = {&triangle.v1, &triangle.v2, &triangle.v3};
+        vec4 *normals[3] = {&triangle.n1, &triangle.n2, &triangle.n3};
+        for (int i = 0; i < 3; i++) {
+            *vertices[i] = monkey_transform * vec4(t.vertices[i], 1);
+            *normals[i] =
+                vec4(normalize(monkey_normal_transform * t.normals[i]), 0);
+        }
+        triangle.material = monkey_material;
+        triangles.push_back(triangle);
+    }
+
+    GPUSphere glass_sphere{vec4(.0f, 1.f, -6.5f, 1.f), m1};
+
+    std::vector<GPUSphere> spheres = {ceiling_light, glass_sphere};
 
     shader.setInt("sphereCount", spheres.size());
     shader.setInt("triangleCount", triangles.size());
 
-    camera = {{0, 0, 0, 0}, {0, 0, -1, 75.0f}};
+    camera = {{0, 1.f, 0, 0}, {0, 0, -1, 60.0f}};
 
     load_objects(window, camera, spheres, triangles);
 

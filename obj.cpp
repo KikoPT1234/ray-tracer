@@ -41,17 +41,23 @@ static ObjIndex parse_face_token(const std::string &token) {
     return idx;
 }
 
-Mesh load_obj_triangles_gpu(const std::string &filename,
-                            const Material &material) {
-    Mesh mesh{material};
+struct ObjTriangle {
+    vec3 vertices[3];
+    vec3 normals[3];
+};
 
-    std::vector<glm::dvec3> positions;
-    std::vector<glm::dvec3> normals;
+// Loads an OBJ file as a flat list of triangles with per-vertex normals.
+// Faces without normals get the geometric normal from their winding.
+std::vector<ObjTriangle> load_obj(const std::string &filename) {
+    std::vector<ObjTriangle> triangles;
+
+    std::vector<vec3> positions;
+    std::vector<vec3> normals;
 
     std::ifstream file(filename);
     if (!file) {
         std::cerr << "Failed to open OBJ file: " << filename << "\n";
-        return mesh;
+        return triangles;
     }
 
     std::string line;
@@ -62,16 +68,16 @@ Mesh load_obj_triangles_gpu(const std::string &filename,
 
         // Vertex position
         if (type == "v") {
-            glm::dvec3 v;
+            vec3 v;
             ss >> v.x >> v.y >> v.z;
             positions.push_back(v);
         }
 
         // Vertex normal
         else if (type == "vn") {
-            glm::dvec3 n;
+            vec3 n;
             ss >> n.x >> n.y >> n.z;
-            normals.push_back(glm::normalize(n));
+            normals.push_back(normalize(n));
         }
 
         // Face
@@ -88,26 +94,27 @@ Mesh load_obj_triangles_gpu(const std::string &filename,
 
             // Fan triangulation: (0, i, i+1)
             for (size_t i = 1; i + 1 < face.size(); ++i) {
-                const ObjIndex &i0 = face[0];
-                const ObjIndex &i1 = face[i];
-                const ObjIndex &i2 = face[i + 1];
+                const ObjIndex *indices[3] = {&face[0], &face[i], &face[i + 1]};
 
-                glm::dvec3 a = positions[i0.v];
-                glm::dvec3 b = positions[i1.v];
-                glm::dvec3 c = positions[i2.v];
+                ObjTriangle tri;
+                for (int j = 0; j < 3; j++)
+                    tri.vertices[j] = positions[indices[j]->v];
 
-                glm::dvec3 na = (i0.vn >= 0) ? normals[i0.vn] : glm::dvec3(0);
-                glm::dvec3 nb = (i1.vn >= 0) ? normals[i1.vn] : glm::dvec3(0);
-                glm::dvec3 nc = (i2.vn >= 0) ? normals[i2.vn] : glm::dvec3(0);
+                vec3 face_normal =
+                    normalize(cross(tri.vertices[1] - tri.vertices[0],
+                                    tri.vertices[2] - tri.vertices[0]));
 
-                Triangle *tri = new Triangle(a, b, c, na, nb, nc, material);
+                for (int j = 0; j < 3; j++)
+                    tri.normals[j] = (indices[j]->vn >= 0)
+                                         ? normals[indices[j]->vn]
+                                         : face_normal;
 
-                mesh.add(tri);
+                triangles.push_back(tri);
             }
         }
     }
 
-    return mesh;
+    return triangles;
 }
 
 Mesh load_obj_triangles(const std::string &filename, const Material &material) {
