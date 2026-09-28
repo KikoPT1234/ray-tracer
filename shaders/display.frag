@@ -4,22 +4,35 @@ out vec4 fragColor;
 
 uniform sampler2D image;
 uniform vec2 resolution;
+// Multiplier on the linear image before tone mapping.
+uniform float exposure;
 
-vec3 aces(vec3 x) {
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+// Khronos PBR Neutral tone mapping. Leaves colours untouched until they get
+// bright, then compresses the peak channel and blends toward white, so
+// saturated colours keep their hue instead of washing out.
+vec3 pbr_neutral(vec3 color) {
+    const float start_compression = 0.8 - 0.04;
+    const float desaturation = 0.15;
+
+    float x = min(color.r, min(color.g, color.b));
+    float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+    color -= offset;
+
+    float peak = max(color.r, max(color.g, color.b));
+    if (peak < start_compression) return color;
+
+    float d = 1.0 - start_compression;
+    float new_peak = 1.0 - d * d / (peak + d - start_compression);
+    color *= new_peak / peak;
+
+    float g = 1.0 - 1.0 / (desaturation * (peak - new_peak) + 1.0);
+    return mix(color, vec3(new_peak), g);
 }
 
-vec3 gamma_correct(vec3 v) {
-    float x = pow(v.x, 1.0 / 2.2);
-    float y = pow(v.y, 1.0 / 2.2);
-    float z = pow(v.z, 1.0 / 2.2);
-
-    return vec3(x, y, z);
+// Exact sRGB encoding (linear segment near black, 2.4 power above it).
+vec3 linear_to_srgb(vec3 c) {
+    return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055,
+               step(0.0031308, c));
 }
 
 void main()
@@ -27,5 +40,5 @@ void main()
     vec2 uv = (gl_FragCoord.xy) / resolution;
     vec3 color = texture(image, uv).xyz;
 
-    fragColor = vec4(gamma_correct(aces(color)), 1.0);
+    fragColor = vec4(linear_to_srgb(pbr_neutral(color * exposure)), 1.0);
 }

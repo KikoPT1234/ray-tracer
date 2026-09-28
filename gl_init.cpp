@@ -10,11 +10,28 @@
 
 #include <cstdio>
 
-GLuint VAO, VBO, FBO, texA, texB, materialsSSBO, spheresSSBO,
+// fboA renders into texA, fboB into texB.
+GLuint VAO, VBO, fboA, fboB, texA, texB, materialsSSBO, spheresSSBO,
     triangleVerticesSSBO, triangleNormalsSSBO;
 
 GLuint raytrace_shader_id;
 GLuint display_shader_id;
+
+// Raytrace shader uniforms that change while running, looked up once by
+// cache_uniform_locations().
+GLint frame_count_loc, camera_position_loc, camera_direction_loc, dx_loc,
+    dy_loc, lt_loc;
+
+void cache_uniform_locations() {
+    frame_count_loc = glGetUniformLocation(raytrace_shader_id, "frameCount");
+    camera_position_loc =
+        glGetUniformLocation(raytrace_shader_id, "camera.position");
+    camera_direction_loc =
+        glGetUniformLocation(raytrace_shader_id, "camera.direction_fov");
+    dx_loc = glGetUniformLocation(raytrace_shader_id, "dx");
+    dy_loc = glGetUniformLocation(raytrace_shader_id, "dy");
+    lt_loc = glGetUniformLocation(raytrace_shader_id, "lt");
+}
 
 int count = 0;
 
@@ -75,14 +92,9 @@ void load_viewport(float width, float height) {
 
     glUseProgram(raytrace_shader_id);
 
-    GLuint dx_position = glGetUniformLocation(raytrace_shader_id, "dx");
-    glUniform3fv(dx_position, 1, glm::value_ptr(dx));
-
-    GLuint dy_position = glGetUniformLocation(raytrace_shader_id, "dy");
-    glUniform3fv(dy_position, 1, glm::value_ptr(dy));
-
-    GLuint lt_position = glGetUniformLocation(raytrace_shader_id, "lt");
-    glUniform3fv(lt_position, 1, glm::value_ptr(lt));
+    glUniform3fv(dx_loc, 1, glm::value_ptr(dx));
+    glUniform3fv(dy_loc, 1, glm::value_ptr(dy));
+    glUniform3fv(lt_loc, 1, glm::value_ptr(lt));
 }
 
 void set_resolution(GLFWwindow *window, int width, int height) {
@@ -109,10 +121,13 @@ void set_resolution(GLFWwindow *window, int width, int height) {
     if (texB != 0)
         glDeleteTextures(1, &texB);
 
-    if (FBO != 0)
-        glDeleteFramebuffers(1, &FBO);
+    if (fboA != 0)
+        glDeleteFramebuffers(1, &fboA);
+    if (fboB != 0)
+        glDeleteFramebuffers(1, &fboB);
 
-    glGenFramebuffers(1, &FBO);
+    glGenFramebuffers(1, &fboA);
+    glGenFramebuffers(1, &fboB);
 
     glGenTextures(1, &texA);
     glBindTexture(GL_TEXTURE_2D, texA);
@@ -128,15 +143,19 @@ void set_resolution(GLFWwindow *window, int width, int height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+    glClearColor(0, 0, 0, 1);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fboA);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            texA, 0);
-    glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    glBindFramebuffer(GL_FRAMEBUFFER, fboB);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            texB, 0);
     glClear(GL_COLOR_BUFFER_BIT);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     load_viewport(width, height);
 }

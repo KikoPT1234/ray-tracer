@@ -22,13 +22,9 @@ void processInput(GLFWwindow *window) {
 
 void load_camera() {
     glUseProgram(raytrace_shader_id);
-    GLuint camera_position =
-        glGetUniformLocation(raytrace_shader_id, "camera.position");
-    glUniform4fv(camera_position, 1, glm::value_ptr(camera.position));
-
-    GLuint camera_direction =
-        glGetUniformLocation(raytrace_shader_id, "camera.direction_fov");
-    glUniform4fv(camera_direction, 1, glm::value_ptr(camera.direction_fov));
+    glUniform4fv(camera_position_loc, 1, glm::value_ptr(camera.position));
+    glUniform4fv(camera_direction_loc, 1,
+                 glm::value_ptr(camera.direction_fov));
 
     load_viewport(current_width, current_height);
 }
@@ -167,13 +163,21 @@ void loop(GLFWwindow *window, Shader rayShader) {
     displayShader.use();
     glUniform1i(glGetUniformLocation(display_shader_id, "image"), 0);
 
+    // Display-only, so changing it doesn't restart accumulation.
+    float exposure = 0.6f;
+    GLint exposure_loc = glGetUniformLocation(display_shader_id, "exposure");
+
     set_resolution(window, WIDTH, HEIGHT);
 
+    // Ping-pong: read last frame's texture, render into the other one's FBO.
     GLuint *texRead = &texA;
     GLuint *texWrite = &texB;
+    GLuint *fboWrite = &fboB;
+
+    glfwSwapInterval(0);
 
     float delta_time;
-    float last_frame;
+    float last_frame = glfwGetTime();
     float count_since_fps = 0;
     float delta_since_fps = 0;
 
@@ -196,23 +200,30 @@ void loop(GLFWwindow *window, Shader rayShader) {
             load_camera();
         }
 
-        glfwSwapInterval(0);
+        // E / Q: brighten / darken by one stop per second.
+        float old_exposure = exposure;
+        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+            exposure *= std::exp2(delta_time);
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+            exposure /= std::exp2(delta_time);
+        if (exposure != old_exposure)
+            std::printf("Exposure: %f\n", exposure);
 
         rayShader.use();
-        glBindFramebuffer(GL_FRAMEBUFFER, FBO);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_2D, *texWrite, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, *fboWrite);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, *texRead);
-        rayShader.setInt("frameCount", count);
+        glUniform1i(frame_count_loc, count);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
         std::swap(texRead, texWrite);
+        fboWrite = (fboWrite == &fboA) ? &fboB : &fboA;
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         displayShader.use();
+        glUniform1f(exposure_loc, exposure);
         glBindTexture(GL_TEXTURE_2D, *texRead);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -232,8 +243,8 @@ Scene build_scene() {
     GPUMaterial red_wall = diffuse(rgb_to_vec3(240, 101, 101), .2f);
     GPUMaterial green_wall = diffuse(rgb_to_vec3(88, 224, 108), .2f);
     GPUMaterial blue_wall = diffuse(rgb_to_vec3(29, 102, 219), .2f);
-    GPUMaterial gray_wall = diffuse(vec3(.75f), .3f);
-    GPUMaterial light_material = emissive(vec3(.95f, .90f, .68f), 6.f);
+    GPUMaterial gray_wall = diffuse(vec3(.7f), .3f);
+    GPUMaterial light_material = emissive(vec3(.95f, .90f, .88f), 30.f);
     GPUMaterial glass_material = glass(1.5f, vec3(0.f));
     GPUMaterial monkey_material = diffuse(vec3(.85f, .6f, .2f), .6f);
 
@@ -242,9 +253,9 @@ Scene build_scene() {
 
     const float left = -4.0f;
     const float right = 4.0f;
-    const float bottom = -3.0f;
+    const float bottom = -6.0f;
     const float top = 4.0f;
-    const float front = -5.0f;
+    const float front = 6.0f;
     const float back = -17.0f;
 
     // Six room walls. The front wall faces inward, so backface culling lets the
@@ -262,7 +273,7 @@ Scene build_scene() {
     scene.add_quad(vec3(left, bottom, front), vec3(left, top, front),
                    vec3(right, top, front), vec3(right, bottom, front), 3, 0);
 
-    scene.add_sphere(vec3(0, 3.65f, -11), .8f, 4);
+    scene.add_sphere(vec3(0, 4.f, -11), 1.2f, 4);
 
     // Glass cube in the middle of the room.
     mat4 cube_transform =
@@ -276,9 +287,9 @@ Scene build_scene() {
                             scale(identity<mat4>(), vec3(0.8f));
     // load_obj(scene, "assets/monkey.obj", 6, 0, monkey_transform);
 
-    scene.add_sphere(vec3(.0f, 1.f, -6.5f), 1.f, 5);
-    scene.add_sphere(vec3(.0f, 1.f, -9.5f), 1.f, 5);
-    scene.add_sphere(vec3(.0f, 1.f, -12.5f), 1.f, 5);
+    // scene.add_sphere(vec3(.0f, 1.f, -6.5f), 1.f, 5);
+    scene.add_sphere(vec3(.0f, -1.8f, -11), 1.6f, 5);
+    // scene.add_sphere(vec3(.0f, 1.f, -12.5f), 1.f, 5);
 
     return scene;
 }
@@ -293,6 +304,7 @@ int main() {
     Shader shader("shaders/shader.vert", "shaders/raytrace.frag");
     shader.use();
     raytrace_shader_id = shader.ID;
+    cache_uniform_locations();
 
     Scene scene = build_scene();
 
