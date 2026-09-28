@@ -34,21 +34,35 @@ void load_camera() {
 }
 
 void load_objects(GLFWwindow *window, const Scene &scene) {
+    const std::vector<GPUMaterial> &materials = scene.materials;
     const std::vector<GPUSphere> &spheres = scene.spheres;
-    const std::vector<GPUTriangle> &triangles = scene.triangles;
+    const std::vector<vec4> &triangleVer = scene.triangleVertices;
+    const std::vector<vec4> &triangleNor = scene.triangleNormals;
+
+    glGenBuffers(1, &materialsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, materialsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER,
+                 materials.size() * sizeof(GPUMaterial), materials.data(),
+                 GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, materialsSSBO);
 
     glGenBuffers(1, &spheresSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, spheresSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(GPUSphere),
                  spheres.data(), GL_STATIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, spheresSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, spheresSSBO);
 
-    glGenBuffers(1, &trianglesSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, trianglesSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER,
-                 triangles.size() * sizeof(GPUTriangle), triangles.data(),
-                 GL_STATIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, trianglesSSBO);
+    glGenBuffers(1, &triangleVerticesSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleVerticesSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, triangleVer.size() * sizeof(vec4),
+                 triangleVer.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, triangleVerticesSSBO);
+
+    glGenBuffers(1, &triangleNormalsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleNormalsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, triangleNor.size() * sizeof(vec4),
+                 triangleNor.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, triangleNormalsSSBO);
 
     GLuint viewport_height =
         glGetUniformLocation(raytrace_shader_id, "viewport_height");
@@ -160,15 +174,22 @@ void loop(GLFWwindow *window, Shader rayShader) {
 
     float delta_time;
     float last_frame;
-
-    // float current_width = WIDTH;
-    // float current_height = HEIGHT;
+    float count_since_fps = 0;
+    float delta_since_fps = 0;
 
     while (!glfwWindowShouldClose(window)) {
 
         float current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
+        count_since_fps++;
+        delta_since_fps += delta_time;
+
+        if (delta_since_fps > 0.5f) {
+            std::printf("FPS: %f\n", count_since_fps / delta_since_fps);
+            count_since_fps = 0;
+            delta_since_fps = 0;
+        }
 
         if (update_pos(window, delta_time)) {
             count = 0;
@@ -209,10 +230,13 @@ Scene build_scene() {
     GPUMaterial red_wall = diffuse(rgb_to_vec3(240, 101, 101), .2f);
     GPUMaterial green_wall = diffuse(rgb_to_vec3(88, 224, 108), .2f);
     GPUMaterial blue_wall = diffuse(rgb_to_vec3(29, 102, 219), .2f);
-    GPUMaterial gray_wall = diffuse(vec3(1.f), .3f);
+    GPUMaterial gray_wall = diffuse(vec3(.75f), .3f);
     GPUMaterial light_material = emissive(vec3(.95f, .90f, .68f), 4.f);
     GPUMaterial glass_material = glass(1.5f, vec3(0.05f));
     GPUMaterial monkey_material = diffuse(vec3(.85f, .6f, .2f), .6f);
+
+    scene.add_materials({red_wall, green_wall, blue_wall, gray_wall,
+                         light_material, glass_material, monkey_material});
 
     const float left = -4.0f;
     const float right = 4.0f;
@@ -224,21 +248,19 @@ Scene build_scene() {
     // Six room walls. The front wall faces inward, so backface culling lets the
     // camera see into the room from outside.
     scene.add_quad(vec3(left, bottom, back), vec3(right, bottom, back),
-                   vec3(right, top, back), vec3(left, top, back), blue_wall);
+                   vec3(right, top, back), vec3(left, top, back), 2, 0);
     scene.add_quad(vec3(left, bottom, front), vec3(left, bottom, back),
-                   vec3(left, top, back), vec3(left, top, front), red_wall);
+                   vec3(left, top, back), vec3(left, top, front), 0, 0);
     scene.add_quad(vec3(right, bottom, back), vec3(right, bottom, front),
-                   vec3(right, top, front), vec3(right, top, back), green_wall);
+                   vec3(right, top, front), vec3(right, top, back), 1, 0);
     scene.add_quad(vec3(left, top, back), vec3(right, top, back),
-                   vec3(right, top, front), vec3(left, top, front), gray_wall);
+                   vec3(right, top, front), vec3(left, top, front), 3, 0);
     scene.add_quad(vec3(left, bottom, front), vec3(right, bottom, front),
-                   vec3(right, bottom, back), vec3(left, bottom, back),
-                   gray_wall);
+                   vec3(right, bottom, back), vec3(left, bottom, back), 3, 0);
     scene.add_quad(vec3(left, bottom, front), vec3(left, top, front),
-                   vec3(right, top, front), vec3(right, bottom, front),
-                   gray_wall);
+                   vec3(right, top, front), vec3(right, bottom, front), 3, 0);
 
-    scene.add_sphere(vec3(0, 3.65f, -11), .8f, light_material);
+    scene.add_sphere(vec3(0, 3.65f, -11), .8f, 4);
 
     // Glass cube in the middle of the room.
     mat4 cube_transform =
@@ -250,10 +272,9 @@ Scene build_scene() {
     // Monkey behind the glass sphere, facing the camera.
     mat4 monkey_transform = translate(identity<mat4>(), vec3(0.f, 1., -10.5f)) *
                             scale(identity<mat4>(), vec3(0.8f));
-    // scene.add_triangles(
-    //     load_obj("assets/monkey.obj", monkey_material, monkey_transform));
+    // load_obj(scene, "assets/monkey.obj", 6, 0, monkey_transform);
 
-    scene.add_sphere(vec3(.0f, 1.f, -6.5f), 1.f, glass_material);
+    scene.add_sphere(vec3(.0f, 1.f, -6.5f), 1.f, 5);
 
     return scene;
 }
@@ -272,7 +293,7 @@ int main() {
     Scene scene = build_scene();
 
     shader.setInt("sphereCount", scene.spheres.size());
-    shader.setInt("triangleCount", scene.triangles.size());
+    shader.setInt("triangleCount", scene.triangleVertices.size() / 3);
 
     camera = {{0, 1.f, 0, 0}, {0, 0, -1, 60.0f}};
 

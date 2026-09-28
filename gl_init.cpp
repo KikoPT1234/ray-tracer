@@ -10,7 +10,8 @@
 
 #include <cstdio>
 
-GLuint VAO, VBO, FBO, texA, texB, spheresSSBO, trianglesSSBO;
+GLuint VAO, VBO, FBO, texA, texB, materialsSSBO, spheresSSBO,
+    triangleVerticesSSBO, triangleNormalsSSBO;
 
 GLuint raytrace_shader_id;
 GLuint display_shader_id;

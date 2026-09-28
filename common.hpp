@@ -34,10 +34,10 @@ struct GPUCamera {
     vec4 direction_fov;
 };
 
-inline vec3 rgb_to_vec3(vec3 rgb) { return 256.f * rgb; }
+inline vec3 rgb_to_vec3(vec3 rgb) { return pow(rgb / 255.f, vec3(2.2f)); }
 
 inline vec3 rgb_to_vec3(float r, float g, float b) {
-    return vec3(r, g, b) / 256.f;
+    return pow(vec3(r, g, b) / 255.f, vec3(2.2f));
 }
 
 inline double random_double() { return std::rand() / (RAND_MAX - 1.0); }

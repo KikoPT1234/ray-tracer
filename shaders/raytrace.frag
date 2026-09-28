@@ -18,43 +18,39 @@ struct Material {
     // For glass: xyz = absorption per unit distance, w = refractive index.
     vec4 glass_absorption_ior;
     // x == 1 means dielectric/glass; anything else uses diffuse/specular scatter.
-    vec4 type;
+    vec4 type_r0;
 };
 
 struct Sphere {
     vec4 position_radius;
-    Material material;
-};
-
-struct Triangle {
-    vec4 v1;
-    vec4 v2;
-    vec4 v3;
-
-    vec4 n1;
-    vec4 n2;
-    vec4 n3;
-    Material material;
+    int material_index;
 };
 
 struct HitInfo {
     bool did_hit;
-    Sphere sphere;
-    Triangle triangle;
-    vec3 point;
+    // 0 => sphere, 1 => triangle
+    int type;
+    int index;
     vec3 normal;
     float t;
-    bool isTriangle;
 };
 
 uniform Camera camera;
 
-layout (std430, binding = 0) buffer Spheres {
+layout (std430, binding = 0) buffer Materials {
+    Material materials[];
+};
+
+layout (std430, binding = 1) buffer Spheres {
     Sphere spheres[];
 };
 
-layout (std430, binding = 1) buffer Triangles {
-    Triangle triangles[];
+layout (std430, binding = 2) buffer TriangleVertices {
+    vec4 triangle_vertices[];
+};
+
+layout (std430, binding = 3) buffer TriangleNormals {
+    vec4 triangle_normals[];
 };
 
 uniform int sphereCount;
@@ -100,18 +96,25 @@ vec3 random_unit_vector(inout uint seed) {
 }
 
 vec3 roughen_direction(vec3 direction, float roughness, inout uint seed) {
+    if (roughness == 0.0) return direction;
     // Perturb perfect reflection/refraction to make rough glass or glossy blur.
     return normalize(direction + random_unit_vector(seed) * roughness * roughness);
 }
 
-void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
-    vec3 ab = (triangle.v2 - triangle.v1).xyz;
-    vec3 ac = (triangle.v3 - triangle.v1).xyz;
-    vec3 ao = ray.origin - triangle.v1.xyz;
+void triangle_intersection(int index, float t, Ray ray, inout HitInfo info) {
+    index *= 3;
+    vec4 v1 = triangle_vertices[index];
+    vec4 v2 = triangle_vertices[index + 1];
+    vec4 v3 = triangle_vertices[index + 2];
+    
+    vec3 ab = (v2 - v1).xyz;
+    vec3 ac = (v3 - v1).xyz;
+    vec3 ao = ray.origin - v1.xyz;
 
     vec3 pvec = cross(ray.direction, ac);
     float determinant = dot(ab, pvec);
-    bool two_sided = triangle.material.type.x == 1;
+
+    bool two_sided = v2.w == 1;
 
     if ((!two_sided && determinant < RAY_EPSILON) ||
         (two_sided && abs(determinant) < RAY_EPSILON)) {
@@ -130,33 +133,40 @@ void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
     }
 
     vec3 qvec = cross(ao, ab);
+    float dst = dot(ac, qvec) * invDet;
+
+    // Behind the ray, or farther than the closest hit found so far.
+    if (dst < RAY_EPSILON || dst >= t) {
+        info.did_hit = false;
+        return;
+    }
+
+
     float v = dot(ray.direction, qvec) * invDet;
     if (v < -BARY_EPSILON || v + u > 1.0 + BARY_EPSILON) {
         info.did_hit = false;
         return;
     }
 
-    float dst = dot(ac, qvec) * invDet;
-    if (dst < RAY_EPSILON) {
-        info.did_hit = false;
-        return;
-    }
 
     u = clamp(u, 0.0, 1.0);
     v = clamp(v, 0.0, 1.0);
     float w = clamp(1.0 - u - v, 0.0, 1.0);
 
+    vec4 n1 = triangle_normals[index];
+    vec4 n2 = triangle_normals[index + 1];
+    vec4 n3 = triangle_normals[index + 2];
+
     // Initialize hit info
     info.did_hit = true;
-    info.isTriangle = true;
-    info.triangle = triangle;
-    info.point = ray.origin + ray.direction * dst;
-    info.normal = normalize(triangle.n1.xyz * w + triangle.n2.xyz * u + triangle.n3.xyz * v);
-    
+    info.type = 1;
+    info.index = index / 3;
+    info.normal = normalize(n1.xyz * w + n2.xyz * u + n3.xyz * v);
     info.t = dst;
 }
 
-void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
+void sphere_intersection(int index, float t, Ray ray, inout HitInfo info) {
+    Sphere sphere = spheres[index];
     vec3 op = sphere.position_radius.xyz - ray.origin.xyz;
     vec3 rd = ray.direction.xyz;
     float radius = sphere.position_radius.w;
@@ -172,6 +182,9 @@ void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
     float sqrt_discriminant = sqrt(discriminant);
     float x = (h - sqrt_discriminant);
 
+    // Something else that's closer has already been found
+    if (x > t) return;
+
     // If the near root is behind/too close, try the far root so rays inside spheres can exit.
     if (x <= RAY_EPSILON)
         x = (h + sqrt_discriminant);
@@ -179,12 +192,12 @@ void sphere_intersection(Sphere sphere, Ray ray, inout HitInfo info) {
     if (x <= RAY_EPSILON)
         info.did_hit = false;
     else {
+        vec3 hit_point = ray.origin + x * ray.direction;
         info.did_hit = true;
-        info.sphere = sphere;
+        info.index = index;
         info.t = x;
-        info.point = ray.origin + ray.direction * x;
-        info.normal = (info.point - sphere.position_radius.xyz) / radius;
-        info.isTriangle = false;
+        info.normal = (hit_point - sphere.position_radius.xyz) / radius;
+        info.type = 0;
     }
 }
 
@@ -194,30 +207,22 @@ HitInfo intersect_ray(Ray ray) {
     info.t = 1.0 / 0.0;
 
     for (int i = 0; i < sphereCount; i++) {
-        Sphere sphere = spheres[i];
-
         HitInfo temp;
         temp.did_hit = false;
-        sphere_intersection(sphere, ray, temp);
+        sphere_intersection(i, info.t, ray, temp);
 
         if (temp.did_hit) {
-            if (temp.t < info.t && temp.t > RAY_EPSILON) {
-                info = temp;
-            }
+            info = temp;
         }        
     }
 
     for (int i = 0; i < triangleCount; i++) {
-        Triangle triangle = triangles[i];
-
         HitInfo temp;
         temp.did_hit = false;
-        triangle_intersection(triangle, ray, temp);
+        triangle_intersection(i, info.t, ray, temp);
 
         if (temp.did_hit) {
-            if (temp.t < info.t && temp.t > RAY_EPSILON) {
-                info = temp;
-            }
+            info = temp;
         }  
     }
 
@@ -229,8 +234,8 @@ vec3 lerp(vec3 a, vec3 b, float h) {
 }
 
 Material get_material(HitInfo hit) {
-    if (hit.isTriangle) return hit.triangle.material;
-    return hit.sphere.material;
+    if (hit.type == 0) return materials[spheres[hit.index].material_index];
+    else return materials[int(triangle_vertices[hit.index * 3].w)];
 }
 
 // Diffuse/specular bounce off a surface, blended by the material's smoothness.
@@ -260,15 +265,15 @@ vec3 calculate_refraction(Ray ray, HitInfo hit, Material material, inout vec3 co
     float hit_sine2 = max(0.0, 1.0 - hit_cos * hit_cos);
     float sine2_outgoing = hit_sine2 * eta * eta;
 
-    vec3 reflect_direction = calculate_reflection(ray, material, normal, seed);
     // If Snell's law would require sin(theta) > 1, this is total internal reflection.
     bool cannot_refract = sine2_outgoing > 1.0;
-    vec3 direction = reflect_direction;
+
+    vec3 direction;
 
     if (!cannot_refract) {
         float cos_outgoing = sqrt(max(0.0, 1.0 - sine2_outgoing));
         // Schlick approximation: probability that this bounce reflects instead of refracts.
-        float r0 = (1.0 - refractive_index) / (1.0 + refractive_index);
+        float r0 = material.type_r0.y;
         r0 *= r0;
         float x = 1.0 - (eta <= 1 ? hit_cos : cos_outgoing);
         float x2 = x * x;
@@ -278,7 +283,12 @@ vec3 calculate_refraction(Ray ray, HitInfo hit, Material material, inout vec3 co
             eta * ray.direction + (eta * hit_cos - cos_outgoing) * normal;
 
         bool refracted = random(seed) >= reflectance;
-        direction = refracted ? refract_direction : reflect_direction;
+        if (refracted)
+            direction = refract_direction;
+        // reflection direction instead
+        else direction = calculate_reflection(ray, material, normal, seed);
+    } else {
+        direction = calculate_reflection(ray, material, normal, seed);
     }
 
     if (!front_face) {
@@ -295,7 +305,7 @@ vec3 scatter(Ray ray, HitInfo hit, Material material, inout vec3 color, inout ui
     float roughness = clamp(1.0 - smoothness, 0.0, 1.0);
 
     vec3 direction;
-    if (material.type.x == 1) {
+    if (material.type_r0.x == 1) {
         direction = calculate_refraction(ray, hit, material, color, seed);
     } else {
         direction = calculate_reflection(ray, material, hit.normal, seed);
@@ -325,6 +335,8 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
             break;
         }
 
+        vec3 hit_point = ray.origin + hit.t * ray.direction;
+
         Material material = get_material(hit);
 
         vec3 emission_color = material.emission_color_strength.xyz;
@@ -333,20 +345,22 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
         light += emitted_light * color;
         color *= material.color_smoothness.xyz;
 
-        vec3 direction = scatter(ray, hit, material, color, seed);
-
         // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
-        // float p = max(color.r, max(color.g, color.b));
-        // if (random(seed) >= p) {
-        //     break;
-        // }
+        float p = max(color.r, max(color.g, color.b));
+        if (random(seed) >= p) {
+            break;
+        }
 
-        // color *= 1.0 / p;
+        color *= 1.0 / p;
+
+        if (i == bounces) break;
+
+        vec3 direction = scatter(ray, hit, material, color, seed);
 
         // Offset toward the side the next ray is actually travelling into.
         // This avoids self-intersection rings, especially for internal glass reflection.
         float offset_side = dot(direction, hit.normal) < 0.0 ? -1.0 : 1.0;
-        ray = Ray(hit.point + hit.normal * offset_side * RAY_EPSILON, direction);
+        ray = Ray(hit_point + hit.normal * offset_side * RAY_EPSILON, direction);
     }
 
     return light;
