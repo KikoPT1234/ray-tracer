@@ -5,4 +5,4 @@ export GALLIUM_DRIVER=d3d12 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA MESA_GL_VERSI
 make
 cmake .
 
-./raytracer
+prime-run ./raytracer

@@ -15,13 +15,6 @@
 
 using namespace glm;
 
-struct GPUCamera {
-    vec4 position;
-    vec4 direction_fov;
-};
-
-GPUCamera camera;
-
 void processInput(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
@@ -36,6 +29,8 @@ void load_camera() {
     GLuint camera_direction =
         glGetUniformLocation(raytrace_shader_id, "camera.direction_fov");
     glUniform4fv(camera_direction, 1, glm::value_ptr(camera.direction_fov));
+
+    load_viewport(current_width, current_height);
 }
 
 void load_objects(GLFWwindow *window, const Scene &scene) {
@@ -55,13 +50,12 @@ void load_objects(GLFWwindow *window, const Scene &scene) {
                  GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, trianglesSSBO);
 
-    load_camera();
-
     GLuint viewport_height =
         glGetUniformLocation(raytrace_shader_id, "viewport_height");
     glUniform1f(viewport_height, VIEWPORT_HEIGHT);
 
     set_resolution(window, WIDTH, HEIGHT);
+    load_camera();
 }
 
 bool update_pos(GLFWwindow *window, float delta_time) {
@@ -167,6 +161,9 @@ void loop(GLFWwindow *window, Shader rayShader) {
     float delta_time;
     float last_frame;
 
+    // float current_width = WIDTH;
+    // float current_height = HEIGHT;
+
     while (!glfwWindowShouldClose(window)) {
 
         float current_frame = glfwGetTime();
@@ -201,7 +198,7 @@ void loop(GLFWwindow *window, Shader rayShader) {
 
         if (new_res) {
             new_res = false;
-            set_resolution(window, new_width, new_height);
+            set_resolution(window, current_width, current_height);
         }
     }
 }
@@ -253,8 +250,8 @@ Scene build_scene() {
     // Monkey behind the glass sphere, facing the camera.
     mat4 monkey_transform = translate(identity<mat4>(), vec3(0.f, 1., -10.5f)) *
                             scale(identity<mat4>(), vec3(0.8f));
-    scene.add_triangles(
-        load_obj("assets/monkey.obj", monkey_material, monkey_transform));
+    // scene.add_triangles(
+    //     load_obj("assets/monkey.obj", monkey_material, monkey_transform));
 
     scene.add_sphere(vec3(.0f, 1.f, -6.5f), 1.f, glass_material);
 
@@ -284,48 +281,4 @@ int main() {
     loop(window, shader);
 
     terminate();
-}
-
-void main_old(int, char **) {
-
-    HitList world;
-
-    // // Red
-    // Material m1{dvec3{0.8, .1, 0.2}, dvec3{1, 1, 1}, 0, .9};
-    // Sphere sphere1{dvec3{0, 0, -10}, m1, 4};
-
-    // // Green
-    // Material m2{dvec3{.2, 0.8, 0.3}, dvec3{1, 1, 1}, 0, .9};
-    // Sphere sphere2{dvec3{2, 8, -14}, m2, 4};
-
-    // // // Blue
-    // Material m3{dvec3{.2, 0.4, 0.7}, dvec3{1, 1, 1}, 0, .05};
-    // Sphere sphere3{dvec3{0, -50, -7}, m3, 46};
-
-    // // White
-    // Material m4{dvec3{1, 1, 1}, dvec3{1, 1, 1}, 0, .9};
-    // Sphere sphere4{dvec3{2, 8, -6}, m4, 4};
-
-    // // Sun
-    Material m5{dvec3{0, 0, 0}, dvec3{1, 1, 1}, 2, 0};
-    Sphere sphere5{dvec3{0, 0, 0}, m5, 1};
-
-    // world.add(&sphere1);
-    // world.add(&sphere2);
-    // world.add(&sphere3);
-    // world.add(&sphere4);
-    world.add(&sphere5);
-    // world.add(&triangle);
-
-    // Monkey
-    Material m_monkey{{.2, .4, .7}, {0, 0, 0}, 0, .1};
-    Mesh monkey = load_obj_triangles("assets/monkey.obj", m_monkey);
-    monkey.set_position({0, 0, -3});
-    // monkey.set_rotation({0, 1, 0}, quarter_pi<double>());
-
-    world.add(&monkey);
-
-    Camera camera{{-6, 0, 2}, {2, 0, -1}, 30};
-
-    camera.render(world, 10, 1000);
 }

@@ -63,6 +63,10 @@ uniform int triangleCount;
 uniform vec2 resolution;
 uniform float viewport_height;
 
+uniform vec3 dx;
+uniform vec3 dy;
+uniform vec3 lt;
+
 uniform sampler2D prevFrame;   // texture from last frame
 uniform int frameCount;
 
@@ -98,35 +102,6 @@ vec3 random_unit_vector(inout uint seed) {
 vec3 roughen_direction(vec3 direction, float roughness, inout uint seed) {
     // Perturb perfect reflection/refraction to make rough glass or glossy blur.
     return normalize(direction + random_unit_vector(seed) * roughness * roughness);
-}
-
-mat4 get_cam_matrix() {
-    vec3 world_up = vec3(0.0, 1.0, 0.0);
-    vec3 forward = -camera.direction_fov.xyz;
-    vec3 right = normalize(cross(world_up, forward));
-    vec3 up = cross(forward, right);
-
-    mat4 mat;
-
-    mat[0] = vec4(right, 0.0);
-    mat[1] = vec4(up, 0.0);
-    mat[2] = vec4(forward, 0.0);
-    mat[3] = vec4(camera.position.xyz, 1.0f);
-
-    return mat;
-}
-
-float get_focal_length() {
-    float FOV = camera.direction_fov.w;
-    return (viewport_height / 2.0) / tan(radians(FOV / 2.0));
-}
-
-vec3 get_left_top(vec2 viewport) {
-    float fz = get_focal_length();
-    mat4 cam_matrix = get_cam_matrix();
-    vec3 outv = (cam_matrix * vec4(-viewport.x / 2.0,
-                                    -viewport.y / 2.0, -fz, 1.0)).xyz;
-    return outv;
 }
 
 void triangle_intersection(Triangle triangle, Ray ray, inout HitInfo info) {
@@ -295,7 +270,9 @@ vec3 calculate_refraction(Ray ray, HitInfo hit, Material material, inout vec3 co
         // Schlick approximation: probability that this bounce reflects instead of refracts.
         float r0 = (1.0 - refractive_index) / (1.0 + refractive_index);
         r0 *= r0;
-        float reflectance = r0 + (1.0 - r0) * pow(1.0 - (eta <= 1 ? hit_cos : cos_outgoing), 5.0);
+        float x = 1.0 - (eta <= 1 ? hit_cos : cos_outgoing);
+        float x2 = x * x;
+        float reflectance = r0 + (1.0 - r0) * x2 * x2 * x;
 
         vec3 refract_direction =
             eta * ray.direction + (eta * hit_cos - cos_outgoing) * normal;
@@ -387,20 +364,20 @@ uint hash2(uvec2 v) {
 
 void main()
 {
-    vec2 viewport = vec2( (resolution.x / resolution.y) * viewport_height, viewport_height );
+    // vec2 viewport = vec2( (resolution.x / resolution.y) * viewport_height, viewport_height );
 
-    mat4 cam_matrix = get_cam_matrix();
+    // mat4 cam_matrix = get_cam_matrix();
 
-    vec3 viewport_u =
-            (cam_matrix * vec4(viewport.x, 0, 0, 1.0) - vec4(camera.position.xyz, 0)).xyz;
+    // vec3 viewport_u =
+    //         (cam_matrix * vec4(viewport.x, 0, 0, 1.0) - vec4(camera.position.xyz, 0)).xyz;
 
-    vec3 viewport_v = (cam_matrix * vec4(0, viewport.y, 0, 1.0) -
-                        vec4(camera.position.xyz, 0)).xyz;
+    // vec3 viewport_v = (cam_matrix * vec4(0, viewport.y, 0, 1.0) -
+    //                     vec4(camera.position.xyz, 0)).xyz;
 
-    vec3 dx = viewport_u * (1.0 / resolution.x);
-    vec3 dy = viewport_v * (1.0 / resolution.y);
+    // vec3 dx = viewport_u * (1.0 / resolution.x);
+    // vec3 dy = viewport_v * (1.0 / resolution.y);
 
-    vec3 lt = get_left_top(viewport);
+    // vec3 lt = get_left_top(viewport);
 
     uint seed = hash2(uvec2(gl_FragCoord.xy));
     seed = pcg_hash(seed ^ pcg_hash(frameCount));

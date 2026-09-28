@@ -29,9 +29,12 @@ const double ASPECT_RATIO = ((double)WIDTH) / ((double)HEIGHT);
 const double VIEWPORT_HEIGHT = 2.0;
 const double VIEWPORT_WIDTH = ASPECT_RATIO * VIEWPORT_HEIGHT;
 
-inline vec3 rgb_to_vec3(vec3 rgb) {
-    return 256.f * rgb;
-}
+struct GPUCamera {
+    vec4 position;
+    vec4 direction_fov;
+};
+
+inline vec3 rgb_to_vec3(vec3 rgb) { return 256.f * rgb; }
 
 inline vec3 rgb_to_vec3(float r, float g, float b) {
     return vec3(r, g, b) / 256.f;
