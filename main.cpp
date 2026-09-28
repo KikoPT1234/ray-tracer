@@ -233,8 +233,8 @@ Scene build_scene() {
     GPUMaterial green_wall = diffuse(rgb_to_vec3(88, 224, 108), .2f);
     GPUMaterial blue_wall = diffuse(rgb_to_vec3(29, 102, 219), .2f);
     GPUMaterial gray_wall = diffuse(vec3(.75f), .3f);
-    GPUMaterial light_material = emissive(vec3(.95f, .90f, .68f), 4.f);
-    GPUMaterial glass_material = glass(1.5f, vec3(0.9f));
+    GPUMaterial light_material = emissive(vec3(.95f, .90f, .68f), 6.f);
+    GPUMaterial glass_material = glass(1.5f, vec3(0.f));
     GPUMaterial monkey_material = diffuse(vec3(.85f, .6f, .2f), .6f);
 
     scene.add_materials({red_wall, green_wall, blue_wall, gray_wall,
@@ -277,6 +277,8 @@ Scene build_scene() {
     // load_obj(scene, "assets/monkey.obj", 6, 0, monkey_transform);
 
     scene.add_sphere(vec3(.0f, 1.f, -6.5f), 1.f, 5);
+    scene.add_sphere(vec3(.0f, 1.f, -9.5f), 1.f, 5);
+    scene.add_sphere(vec3(.0f, 1.f, -12.5f), 1.f, 5);
 
     return scene;
 }

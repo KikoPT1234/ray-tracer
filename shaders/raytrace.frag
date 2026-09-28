@@ -275,11 +275,16 @@ vec3 calculate_refraction(Ray ray, HitInfo hit, Material material, inout vec3 co
     if (!cannot_refract) {
         float cos_outgoing = sqrt(max(0.0, 1.0 - sine2_outgoing));
         // Schlick approximation: probability that this bounce reflects instead of refracts.
-        float r0 = material.type_r0.y;
-        r0 *= r0;
-        float x = 1.0 - (eta <= 1 ? hit_cos : cos_outgoing);
-        float x2 = x * x;
-        float reflectance = r0 + (1.0 - r0) * x2 * x2 * x;
+        // float r0 = material.type_r0.y;
+        // r0 *= r0;
+        // float x = 1.0 - (eta <= 1 ? hit_cos : cos_outgoing);
+        // float x2 = x * x;
+        // float reflectance = r0 + (1.0 - r0) * x2 * x2 * x;
+
+        // Fresnel equations
+        float rs = (eta * hit_cos - cos_outgoing) / (eta * hit_cos + cos_outgoing);
+        float rp = (hit_cos - eta * cos_outgoing) / (hit_cos + eta * cos_outgoing);
+        float reflectance = 0.5 * (rs * rs + rp * rp);
 
         vec3 refract_direction =
             eta * ray.direction + (eta * hit_cos - cos_outgoing) * normal;
@@ -413,7 +418,7 @@ void main()
     vec2 uv = gl_FragCoord.xy / resolution;
 
     vec4 prev = texture(prevFrame, uv);
-    vec4 current = vec4(trace_ray(ray, 7, seed), 1);
+    vec4 current = vec4(trace_ray(ray, 14, seed), 1);
 
     float w = 1.0 / float(frameCount + 1);
 
