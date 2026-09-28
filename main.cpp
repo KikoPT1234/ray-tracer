@@ -196,6 +196,8 @@ void loop(GLFWwindow *window, Shader rayShader) {
             load_camera();
         }
 
+        glfwSwapInterval(0);
+
         rayShader.use();
         glBindFramebuffer(GL_FRAMEBUFFER, FBO);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
@@ -203,7 +205,7 @@ void loop(GLFWwindow *window, Shader rayShader) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, *texRead);
         rayShader.setInt("frameCount", count);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
 
         std::swap(texRead, texWrite);
 
@@ -232,7 +234,7 @@ Scene build_scene() {
     GPUMaterial blue_wall = diffuse(rgb_to_vec3(29, 102, 219), .2f);
     GPUMaterial gray_wall = diffuse(vec3(.75f), .3f);
     GPUMaterial light_material = emissive(vec3(.95f, .90f, .68f), 4.f);
-    GPUMaterial glass_material = glass(1.5f, vec3(0.05f));
+    GPUMaterial glass_material = glass(1.5f, vec3(0.9f));
     GPUMaterial monkey_material = diffuse(vec3(.85f, .6f, .2f), .6f);
 
     scene.add_materials({red_wall, green_wall, blue_wall, gray_wall,

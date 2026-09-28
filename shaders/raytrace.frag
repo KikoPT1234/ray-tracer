@@ -76,7 +76,7 @@ float random(inout uint seed) {
     seed = seed * 747796405 + 2891336453;
     uint result = ((seed >> ((seed >> 28) + 4)) ^ seed) * 277803737;
     result = (result >> 22) ^ result;
-    return result / 4294967295.0;
+    return result * 2.3283064e-10;
 }
 
 float random_between(float start, float end, inout uint seed) {
@@ -188,6 +188,8 @@ void sphere_intersection(int index, float t, Ray ray, inout HitInfo info) {
     // If the near root is behind/too close, try the far root so rays inside spheres can exit.
     if (x <= RAY_EPSILON)
         x = (h + sqrt_discriminant);
+
+    if (x > t) return;
 
     if (x <= RAY_EPSILON)
         info.did_hit = false;
@@ -306,12 +308,12 @@ vec3 scatter(Ray ray, HitInfo hit, Material material, inout vec3 color, inout ui
 
     vec3 direction;
     if (material.type_r0.x == 1) {
-        direction = calculate_refraction(ray, hit, material, color, seed);
+        direction = roughen_direction(calculate_refraction(ray, hit, material, color, seed), roughness, seed);
     } else {
         direction = calculate_reflection(ray, material, hit.normal, seed);
     }
 
-    return roughen_direction(direction, roughness, seed);
+    return direction;
 }
 
 vec3 environment_light(vec3 direction) {
@@ -345,15 +347,17 @@ vec3 trace_ray(Ray ray, int bounces, inout uint seed) {
         light += emitted_light * color;
         color *= material.color_smoothness.xyz;
 
-        // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
-        float p = max(color.r, max(color.g, color.b));
-        if (random(seed) >= p) {
-            break;
+        if (i >= 2) {
+            // Random early exit if ray colour is nearly 0 (can't contribute much to final result)
+            float p = max(color.r, max(color.g, color.b));
+            if (random(seed) >= p) {
+                break;
+            }
+
+            color *= 1.0 / p;
+
+            if (i == bounces) break;
         }
-
-        color *= 1.0 / p;
-
-        if (i == bounces) break;
 
         vec3 direction = scatter(ray, hit, material, color, seed);
 
@@ -396,8 +400,8 @@ void main()
     uint seed = hash2(uvec2(gl_FragCoord.xy));
     seed = pcg_hash(seed ^ pcg_hash(frameCount));
 
-    float offset_x = random_between(-.5f, .5f, seed);
-    float offset_y = random_between(-.5f, .5f, seed);
+    float offset_x = random_between(-.8f, .8f, seed);
+    float offset_y = random_between(-.8f, .8f, seed);
 
     vec3 pos = lt + (gl_FragCoord.x + offset_x) * (dx) + (gl_FragCoord.y + offset_y) * dy;
     
