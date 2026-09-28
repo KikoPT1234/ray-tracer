@@ -2,3 +2,7 @@ out/
 build/
 CMakeFiles
 CMakeCache.txt
+raytracer
+**/cmake_install.cmake
+**/*.a
+**/Makefile
